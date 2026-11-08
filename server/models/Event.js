@@ -32,11 +32,20 @@ const eventSchema = new mongoose.Schema({
   flagged: { type: Boolean, default: false },
   isFeatured:    { type: Boolean, default: false, index: true },
   featuredOrder: { type: Number, default: 0 },
-  // Per-event override for who pays the platform fee.
-  //   null / undefined  → use Settings.feePaidBy (platform default)
-  //   'organizer'       → fee deducted from this event's organizer payout
-  //   'buyer'           → fee added on top of the ticket price at checkout
-  feePaidBy: {type: String, enum: ['organizer', 'buyer'], default: null, set: v => (v === '' ? null : v),},
+
+  // Who pays the platform fee for this event.
+  //   null              → use Settings.feePaidBy (the platform default)
+  //   'organizer'       → deducted from this event's sales
+  //   'buyer'           → added on top of the ticket price at checkout
+  // The first sale freezes the resolved value here (ticketService.purchaseTicket),
+  // so a later change to the platform default can't alter the price mid-sale.
+  // `null` must be in the enum: Mongoose runs enum validation on null defaults.
+  feePaidBy: {
+    type: String,
+    enum: ['organizer', 'buyer', null],
+    default: null,
+    set: (v) => (v === '' ? null : v),
+  },
 
   // Scheduling — stored for future use. Actual scheduled publishing requires
   // a background job that flips isPublished when this timestamp arrives.

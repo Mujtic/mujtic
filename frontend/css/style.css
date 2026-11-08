@@ -103,12 +103,17 @@ body { font-family: 'Outfit', sans-serif; background: var(--bg); color: var(--te
   color: var(--teal); letter-spacing: -0.03em; cursor: pointer;
   text-decoration: none; display: flex; align-items: baseline; gap: 0.3rem;
 }
-.nav-logo-dot {
-  width: 7px; height: 7px; border-radius: 50%; background: var(--coral);
-  display: inline-block; margin-bottom: 1px;
-  animation: blink 2.5s ease-in-out infinite;
+
+.nav-logo .logo-img {
+  width: 10rem;
+  display: block;
 }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* Show the correct logo per theme (uses the same attribute your :root already flips) */
+.nav-logo .logo-img--dark  { display: none; }
+
+:root[data-theme="dark"] .nav-logo .logo-img--light { display: none; }
+:root[data-theme="dark"] .nav-logo .logo-img--dark  { display: block; }
 
 .nav-links { display: flex; gap: 0.25rem; list-style: none; }
 .nav-links a {
@@ -1076,7 +1081,16 @@ input[type="file"] { display: none; }
 .site-footer { background: var(--bg-2); border-top: 1px solid var(--border); margin-top: 4rem; }
 .footer-top { display: grid; grid-template-columns: 1.8fr 1fr 1fr 1fr 1.5fr; gap: 3rem; padding: 4rem 2.5rem 3rem; max-width: 1400px; margin: 0 auto; }
 .footer-logo { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1.75rem; color: var(--teal); letter-spacing: -0.03em; display: flex; align-items: baseline; gap: 0.3rem; margin-bottom: 1rem; }
-.footer-logo-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--coral); display: inline-block; margin-bottom: 1px; }
+.footer-logo .logo-img {
+  width: 10rem;
+  display: block;
+}
+
+/* Show the correct logo per theme (uses the same attribute your :root already flips) */
+.footer-logo .logo-img--dark  { display: none; }
+
+:root[data-theme="dark"] .footer-logo .logo-img--light { display: none; }
+:root[data-theme="dark"] .footer-logo .logo-img--dark  { display: block; }
 .footer-desc { font-size: 0.83rem; color: var(--muted); line-height: 1.75; margin-bottom: 1.5rem; max-width: 300px; }
 .footer-social { display: flex; gap: 0.6rem; flex-wrap: wrap; }
 .social-link { width: 34px; height: 34px; border-radius: 50%; background: var(--bg-3); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 0.78rem; text-decoration: none; transition: all 0.2s; }

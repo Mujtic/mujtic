@@ -44,6 +44,7 @@ class GlycrApp {
     this.apiBase   = (cfg.apiBase || (isDev ? 'http://localhost:5040/api' : '/api')).replace(/\/$/, '');
     this.apiOrigin = this.apiBase.replace(/\/api$/, '');
     this.platformFeePercent = null;   // was 3; the API is the only source
+    this.allowFeeChoice = true;       // admin switch: may organizers choose who pays the fee?
     this.orgSummary = null;           // server-side revenue aggregate
     this._loadAllPromise = null;
     this._orgLoadedAt = 0;
@@ -110,11 +111,13 @@ class GlycrApp {
       { cat: 'payments', q: 'Is my payment information secure?', a: 'Yes. All payments are encrypted using industry-standard TLS. We never store your card details on our servers.' },
       { cat: 'organizers', q: 'How do I create an event?', a: 'Sign up as an organiser, then use the Dashboard → New Event button. Fill in event details, set ticket types, and publish.' },
       { cat: 'organizers', q: 'When do I receive my payout?', a: 'Payouts are processed within 2–5 business days after your event. You can request a payout from your Dashboard or Payouts page.' },
-      { cat: 'organizers', q: 'What is the platform fee?', a: 'Glycr charges a small percentage fee on each ticket sold. The current rate is shown on your Dashboard. There are no setup or listing fees.' },
+      { cat: 'organizers', q: 'What is the platform fee?', a: 'Glycr charges a percentage of each order, and may apply a minimum fee per order. For each event, the fee is either deducted from your sales or added to the ticket price as a service fee at checkout, and buyers always see it before they pay. The current rate is shown on your Dashboard. There are no setup or listing fees.' },
+      { cat: 'organizers', q: 'Who pays the platform fee on my event?', a: 'When you create an event you can choose whether you pay the fee (deducted from your sales) or the buyer pays it (added at checkout), unless the platform default is enforced. The choice is locked once the first ticket is sold, so every buyer sees the same price.' },
       { cat: 'organizers', q: 'Can I schedule when my event goes live?', a: 'Yes! In the event creation form, use the "Schedule Publication" field to set a future date and time for your event to go live.' },
       { cat: 'refunds', q: 'How do I request a refund?', a: 'Go to Profile → Purchase History and click "Request Refund" next to the ticket. Fill in the reason and submit. The organiser will review within 48 hours.' },
       { cat: 'refunds', q: 'How long do refunds take?', a: 'Once approved by the organiser, refunds are processed within 5–10 business days depending on your payment method.' },
-      { cat: 'refunds', q: 'What if the event is cancelled?', a: 'If an organiser cancels an event, all ticket holders are automatically entitled to a full refund. Glycr will process these within 5–7 business days.' },
+      { cat: 'refunds', q: 'What if the event is cancelled?', a: 'If an organiser cancels an event, all ticket holders are automatically refunded in full, including any service fee you paid at checkout. Glycr will process these within 5–7 business days.' },
+      { cat: 'refunds', q: 'Is the service fee refundable?', a: 'If the organiser cancels the event, yes: you get back everything you paid. If you request a refund yourself, the ticket price is refunded but a service fee added at checkout is not.' },
       { cat: 'account', q: 'How do I reset my password?', a: 'Click "Forgot Password?" on the Sign In page, enter your email, and follow the link sent to your inbox.' },
       { cat: 'account', q: 'Can I have both an attendee and organiser account?', a: 'Yes! You can enable the organiser role from your account settings or by checking "I\'m an event organiser" during registration.' },
       { cat: 'account', q: 'How do I update my profile information?', a: 'Go to Profile and click "Edit Profile" to update your name, email, and phone number.' },
@@ -723,6 +726,7 @@ class GlycrApp {
       const fee = Number(s.platformFee);
       if (!Number.isFinite(fee)) throw new Error('Invalid platform fee');
       this.platformFeePercent = fee;
+      this.allowFeeChoice = s.allowOrganizerFeeChoice !== false;   // missing = allowed
     } catch (err) {
       this.platformFeePercent = null;
       console.error('Platform fee unavailable:', err);
@@ -1635,7 +1639,58 @@ class GlycrApp {
       } else if (discRow) { discRow.style.display = 'none'; }
       document.getElementById('price-total').textContent = `${sym}${total.toFixed(2)}`;
     }
+    this._scheduleQuote();   // the server's all-in price (adds the service fee when the buyer pays it)
     return total;
+  }
+
+  // The local numbers above appear instantly; the server's quote replaces them
+  // a moment later. The quote uses the same pricing as the purchase itself.
+  _scheduleQuote() {
+    clearTimeout(this._quoteTimer);
+    this._quoteTimer = setTimeout(() => this._fetchQuote(), 250);
+  }
+
+  async _fetchQuote() {
+    const sel = this.selectedTicket;
+    if (!sel?.eventId || !sel.type) return;
+    const qty = parseInt(document.getElementById('ticket-quantity')?.value) || 1;
+    const seq = this._quoteSeq = (this._quoteSeq || 0) + 1;
+    try {
+      const q = await this.fetchApi('/tickets/quote', {
+        method: 'POST',
+        body: JSON.stringify({
+          eventId: sel.eventId, ticketType: sel.type, quantity: qty,
+          promoCode: (this.appliedPromo && this.appliedPromo.code) || null,
+        }),
+      });
+      if (seq !== this._quoteSeq) return;   // a newer quote is already on its way
+      this._renderQuote(q);
+    } catch {
+      // keep the local estimate; the purchase re-checks everything on the server
+    }
+  }
+
+  _renderQuote(q) {
+    const sym = this.getCurrencySymbol(q.currency);
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set('price-subtotal', `${sym}${q.subtotal.toFixed(2)}`);
+
+    const discRow = document.getElementById('discount-row');
+    if (discRow) {
+      if (q.discount > 0) {
+        discRow.style.display = 'flex';
+        set('discount-label', q.discountLabel || 'Discount');
+        set('price-discount', `-${sym}${q.discount.toFixed(2)}`);
+      } else discRow.style.display = 'none';
+    }
+
+    const feeRow = document.getElementById('fee-row');
+    if (feeRow) {
+      const show = q.serviceFee > 0;
+      feeRow.style.display = show ? 'flex' : 'none';
+      if (show) set('price-fee', `${sym}${q.serviceFee.toFixed(2)}`);
+    }
+    set('price-total', `${sym}${q.total.toFixed(2)}`);
   }
 
   // ─── Purchase Flow ────────────────────────────────────────
@@ -1668,6 +1723,7 @@ class GlycrApp {
     document.getElementById('ticket-quantity').max = tt[this.selectedTicket.type].capacity - (tt[this.selectedTicket.type].sold || 0);
     document.getElementById('promo-code-input').value = '';
     document.getElementById('promo-status').style.display = 'none';
+    const staleFee = document.getElementById('fee-row'); if (staleFee) staleFee.style.display = 'none';
     this.appliedPromo = null;
     const qtyEl = document.getElementById('ticket-quantity');
     const grpEl = document.getElementById('group-booking-section');
@@ -2366,7 +2422,6 @@ class GlycrApp {
       document.getElementById('event-location').value  = event.location || '';
       document.getElementById('event-category').value  = event.category;
       document.getElementById('event-currency').value  = event.currency;
-      document.getElementById('event-fee-paid-by').value = event.feePaidBy || '';
       document.getElementById('organizer-email').value = event.organizerEmail;
       document.getElementById('organizer-phone').value = event.organizerPhone;
       if (event.publishAt) { const paEl = document.getElementById('event-publish-at'); if (paEl) paEl.value = event.publishAt.slice(0, 16); }
@@ -2444,8 +2499,6 @@ class GlycrApp {
     formData.append('organizerEmail', orgEmail);
     formData.append('organizerPhone', orgPhone);
     formData.append('ticketTypes',    JSON.stringify(ticketTypes));
-    const feePaidBy = (document.getElementById('event-fee-paid-by') || {}).value;
-    if (feePaidBy) formData.append('feePaidBy', feePaidBy);
     const publishAt = (document.getElementById('event-publish-at') || {}).value;
     if (publishAt) formData.append('publishAt', publishAt);
     const lat = (document.getElementById('event-lat') || {}).value;

@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Glycr — Event Ticketing</title>
+  <link rel="icon" sizes="32x32" href="public/img/favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
@@ -56,7 +57,10 @@
 
 <!-- ===== NAVBAR ===== -->
 <nav class="navbar">
-  <a class="nav-logo" id="logo-home">Glycr<span class="nav-logo-dot"></span></a>
+  <a class="nav-logo" id="logo-home" href="/">
+    <img class="logo-img logo-img--light" src="public/img/logo-light.svg" alt="Your Company">
+    <img class="logo-img logo-img--dark"  src="public/img/logo-dark.svg"  alt="" aria-hidden="true">
+  </a>
   <ul class="nav-links" id="navMenu" role="menubar">
     <li><a href="#" id="home-link" class="active"><i class="fas fa-calendar-alt"></i> Events</a></li>
     <li><a href="#" id="about-link"><i class="fas fa-info-circle"></i> About</a></li>
@@ -598,7 +602,10 @@
 <footer class="site-footer" id="site-footer">
   <div class="footer-top">
     <div class="footer-brand">
-      <div class="footer-logo">Glycr<span class="footer-logo-dot"></span></div>
+      <a class="footer-logo" id="logo-home" href="/">
+        <img class="logo-img logo-img--light" src="public/img/logo-light.svg" alt="Your Company">
+        <img class="logo-img logo-img--dark"  src="public/img/logo-dark.svg"  alt="" aria-hidden="true">
+      </a>
       <p class="footer-desc">Ghana's premier event ticketing platform. Connecting event creators with audiences across the country — from Accra to Tamale.</p>
       <div class="footer-social">
         <a href="#" aria-label="Facebook" class="social-link"><i class="fab fa-facebook-f"></i></a>
@@ -720,6 +727,7 @@
       <div id="price-summary" class="price-summary" style="display:none; margin-bottom:0.75rem;">
         <div class="price-row"><span>Subtotal</span><span id="price-subtotal">₵0</span></div>
         <div class="price-row discount-row" id="discount-row" style="display:none;"><span>Discount (<span id="discount-label">—</span>)</span><span id="price-discount" style="color:var(--mint);">-₵0</span></div>
+        <div class="price-row fee-row" id="fee-row" style="display:none;"><span>Service fee</span><span id="price-fee">₵0</span></div>
         <div class="price-row total-row"><span><strong>Total</strong></span><span id="price-total" style="color:var(--teal); font-weight:700;">₵0</span></div>
       </div>
       <div id="card-element" style="display:none; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:1rem; margin-bottom:0.75rem; font-size:0.82rem; color:var(--muted);">Stripe card element</div>
@@ -1244,19 +1252,16 @@
           </select>
         </div>
       </div>
-
-      <div class="form-field">
+      <div class="form-field" id="event-fee-wrap">
         <label class="form-label"><i class="fas fa-percent"></i> Who Pays the Platform Fee?</label>
         <select id="event-fee-paid-by" class="input">
           <option value="">Use platform default</option>
           <option value="organizer">Organizer pays — deducted from my sales</option>
           <option value="buyer">Buyer pays — added at checkout</option>
         </select>
-        <p style="font-size:0.73rem; color:var(--muted); margin-top:0.3rem;">
-          Leave as default to use the platform-wide setting. When the buyer pays, the fee is added on top of the ticket price at checkout. When you pay, it's deducted from your payout.
-        </p>
+        <p id="event-fee-note" style="font-size:0.73rem; color:var(--muted); margin-top:0.3rem;">Leave as default to use the platform-wide setting. If you pay, the fee is deducted from your sales. If the buyer pays, it is added to the ticket price at checkout. This is locked once the first ticket is sold.</p>
       </div>
-      
+
       <div class="form-field">
         <label class="form-label"><i class="fas fa-clock"></i> Schedule Publication (optional)</label>
         <input type="datetime-local" id="event-publish-at" class="input">
@@ -1543,7 +1548,7 @@
       <h4>1. Acceptance of Terms</h4><p>By accessing or using Glycr, you agree to be bound by these Terms of Service.</p>
       <h4>2. Use of the Platform</h4><p>You may use Glycr only for lawful purposes. You agree not to create or sell fraudulent tickets, misrepresent events, or engage in harmful conduct.</p>
       <h4>3. Organizer Responsibilities</h4><p>Organizers are solely responsible for events they create, including compliance with local laws, accurate event details, and honouring tickets sold through the platform.</p>
-      <h4>4. Platform Fees</h4><p>Glycr charges a platform fee on ticket sales. Current rates are displayed on your dashboard. Fees are subject to change with 30 days' notice.</p>
+      <h4>4. Platform Fees</h4><p>Glycr charges a platform fee on ticket sales: a percentage of each order, and in some cases a minimum fee per order. For each event, the fee is either deducted from the organiser's sales or added to the ticket price as a service fee at checkout. A service fee is always shown to the buyer before they pay. Current rates are displayed on the organiser dashboard. Fees are subject to change with 30 days' notice. A change applies only to tickets sold after it takes effect, never to tickets already sold.</p>
       <h4>5. Refunds & Cancellations</h4><p>Refund policies are set by event organizers. Glycr facilitates refunds but is not responsible for refund disputes between organizers and attendees.</p>
       <h4>6. Intellectual Property</h4><p>All content on Glycr, including logos, designs, and software, is owned by Glycr Technologies Ltd and protected by copyright law.</p>
       <h4>7. Limitation of Liability</h4><p>Glycr is not liable for any indirect, incidental, or consequential damages arising from your use of the platform.</p>
@@ -1574,6 +1579,7 @@
       <h4>General Refund Policy</h4><p>Refund eligibility is determined by the event organizer's policy set at the time of purchase. Glycr facilitates but does not guarantee refunds.</p>
       <h4>Event Cancellations</h4><p>If an organizer cancels an event, all ticket holders are entitled to a full refund. Glycr will process these automatically within 5–7 business days.</p>
       <h4>Attendee-Initiated Refunds</h4><p>Refund requests must be submitted through your Profile > Purchase History before the refund window closes.</p>
+      <h4>Service Fees</h4><p>If an organiser cancels an event, you receive a full refund of everything you paid, including any service fee added at checkout. For refunds you request yourself, a service fee added at checkout is not refundable; the ticket price is.</p>
       <h4>Processing Time</h4><p>Approved refunds are processed within 5–10 business days depending on payment method.</p>
     </div>
   </div>

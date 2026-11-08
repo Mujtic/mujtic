@@ -8,9 +8,14 @@ const settingsSchema = new mongoose.Schema({
   // behaviour does not change until an admin sets one.
   platformFeeFloor: { type: Number, default: 0, min: 0, max: 50 },
   // Platform default for who pays the fee. An event can override it
-  // (Event.feePaidBy). 'organizer' = deducted from the organizer's sales,
+  // (Event.feePaidBy) while allowOrganizerFeeChoice is on.
+  // 'organizer' = deducted from the organizer's sales,
   // 'buyer' = added on top of the ticket price at checkout.
   feePaidBy: { type: String, enum: ['organizer', 'buyer'], default: 'organizer' },
+  // true  = organizers may choose who pays the fee for each event
+  // false = every new event uses the platform default above (the field is
+  //         hidden from organizers and ignored if sent)
+  allowOrganizerFeeChoice: { type: Boolean, default: true },
   updatedAt: { type: Date, default: Date.now },
   refundDeadlineDays: { type: Number, default: 7 },
 });
