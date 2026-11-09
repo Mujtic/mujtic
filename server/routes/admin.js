@@ -11,8 +11,7 @@ const featuredController = require('../controllers/featuredController');
 
 const auth = require('../middleware/auth');
 const { requireAdmin, requireModeratorOrAdmin } = require('../middleware/rbac');
-const { validate, convertWaitlistSchema } = require('../validators');
-
+const { validate, convertWaitlistSchema } = require('../middleware/validation');
 // Every /admin/* route is authenticated here. Role gates per-route below.
 router.use('/admin', auth);
 

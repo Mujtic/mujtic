@@ -4,7 +4,7 @@ const waitlistController = require('../controllers/waitlistController');
 const auth = require('../middleware/auth');
 const optionalAuth = require('../middleware/optionalAuth');
 const { requireAdmin, requireOrganizer } = require('../middleware/rbac');
-const { validate, waitlistSchema } = require('../middleware/validation');
+const { validate, convertWaitlistSchema } = require('../middleware/validation');
 
 // ── Public / guest-allowed: join waitlist ──
 // optionalAuth: allows guests through (req.user = null), but populates req.user
