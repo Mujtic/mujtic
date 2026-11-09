@@ -110,24 +110,50 @@ function openWaitlistConvertModal(entryId) {
   document.getElementById('waitlist-convert-info').innerHTML =
     `<strong>${entry.userName || '—'}</strong> — ${entry.userEmail || '—'}<br>
      <span style="color:#94a3b8;font-size:0.78rem;">${entry.eventTitle || 'Unknown Event'}</span>`;
+  document.getElementById('waitlist-convert-type').value    = 'regular';
+  document.getElementById('waitlist-convert-gateway').value = 'manual';
+  document.getElementById('waitlist-convert-ref').value     = '';
+  document.getElementById('waitlist-convert-amount').value  = '';
+  document.getElementById('waitlist-convert-paidat').value  = '';
   openModal('waitlist-convert-modal');
 }
 
 async function submitWaitlistConvert() {
-  const entryId    = document.getElementById('waitlist-convert-id').value;
-  const ticketType = document.getElementById('waitlist-convert-type').value;
-  const entry      = waitlist.find(w => w.id === entryId);
-  if (!entry) return;
+  const entryId          = document.getElementById('waitlist-convert-id').value;
+  const ticketType       = document.getElementById('waitlist-convert-type').value;
+  const paymentGateway   = document.getElementById('waitlist-convert-gateway').value;
+  const paymentReference = document.getElementById('waitlist-convert-ref').value.trim();
+  const amountPaidStr    = document.getElementById('waitlist-convert-amount').value.trim();
+  const paidAtStr        = document.getElementById('waitlist-convert-paidat').value;
+
+  if (!paymentReference) {
+    toast.warning('Payment reference required',
+      'Enter the MoMo receipt, bank reference, or gateway transaction ID.');
+    return;
+  }
+
+  const body = { ticketType, paymentReference, paymentGateway };
+  if (amountPaidStr) {
+    const n = parseFloat(amountPaidStr);
+    if (isNaN(n) || n < 0) { toast.warning('Invalid amount', 'Amount Paid must be a positive number.'); return; }
+    body.amountPaid = n;
+  }
+  if (paidAtStr) body.paidAt = new Date(paidAtStr).toISOString();
+
+  const entry = waitlist.find(w => w.id === entryId);
   try {
-    await apiRequest(`/admin/waitlist/${entryId}/convert`, { method: 'POST', body: JSON.stringify({ ticketType }) });
+    const result = await apiRequest(`/admin/waitlist/${entryId}/convert`, {
+      method: 'POST', body: JSON.stringify(body),
+    });
     const idx = waitlist.findIndex(w => w.id === entryId);
     if (idx !== -1) waitlist.splice(idx, 1);
     renderWaitlist(); calculateStats(); renderDashboard();
-    toast.success('Converted', `${entry.userName || 'User'} issued a ${ticketType.toUpperCase()} ticket.`);
+    toast.success('Converted',
+      `${entry?.userName || 'User'} issued a ${ticketType.toUpperCase()} ticket${result?.ticket?.amountPaid != null ? ' (₵' + Number(result.ticket.amountPaid).toFixed(2) + ')' : ''}.`);
     closeModal('waitlist-convert-modal');
   } catch (err) {
+    // Keep the modal open so the admin can fix the reference without losing input
     toast.error('Conversion failed', err.message || 'Could not convert waitlist entry.');
-    closeModal('waitlist-convert-modal');
   }
 }
 
@@ -162,19 +188,45 @@ async function bulkNotifyWaitlist() {
 async function bulkConvertWaitlist() {
   const ids = [...selectedIds.waitlist];
   if (!ids.length) return;
-  const ticketType = await customPrompt('Ticket type to assign to all selected entries:', 'regular', 'Bulk Convert Waitlist', 'regular / vip / vvip / free');
+
+  const ticketType = await customPrompt(
+    'Ticket type to assign to all selected entries:', 'regular',
+    'Bulk Convert Waitlist', 'regular / vip / vvip / free'
+  );
   if (!ticketType) return;
-  showBulkConfirm('Convert Waitlist', `Convert ${ids.length} waitlisted user(s) to ${ticketType} tickets?`, async () => {
-    let ok = 0;
-    for (const id of ids) {
-      try { await apiRequest(`/admin/waitlist/${id}/convert`, { method:'POST', body: JSON.stringify({ ticketType }) }); } catch {}
-      const idx = waitlist.findIndex(w => w.id === id); if (idx !== -1) { waitlist.splice(idx, 1); ok++; }
-    }
-    //await addLog('system', `Bulk converted ${ok} waitlist entries to ${ticketType} tickets`, { adminName: currentAdmin.name, adminRole: currentAdmin.role, count: ok, ticketType });
-    selectedIds.waitlist.clear();
-    renderWaitlist(); calculateStats(); renderDashboard();
-    toast.success('Done', `${ok} user(s) converted to ${ticketType} tickets.`);
-  });
+
+  const batchRef = await customPrompt(
+    'Batch payment reference (MoMo disbursement ID, bank batch ref, etc.).\n' +
+    'Each converted ticket will be tagged under this reference.',
+    '', 'Bulk Convert Waitlist', 'e.g. MoMo-BATCH-20250101-001'
+  );
+  if (!batchRef || !batchRef.trim()) return;
+
+  showBulkConfirm('Convert Waitlist',
+    `Convert ${ids.length} waitlisted user(s) to ${ticketType} tickets using batch reference "${batchRef.trim()}"?`,
+    async () => {
+      let ok = 0, failed = 0, lastError = '';
+      let ticketIndex = 0;
+      for (const id of ids) {
+        try {
+          ticketIndex++;
+          await apiRequest(`/admin/waitlist/${id}/convert`, {
+            method: 'POST',
+            body: JSON.stringify({
+              ticketType,
+              paymentReference: `${batchRef.trim()}-${String(ticketIndex).padStart(3, '0')}`,
+              paymentGateway: 'manual',
+            }),
+          });
+          const idx = waitlist.findIndex(w => w.id === id);
+          if (idx !== -1) { waitlist.splice(idx, 1); ok++; }
+        } catch (err) { failed++; lastError = err.message || ''; }
+      }
+      selectedIds.waitlist.clear();
+      renderWaitlist(); calculateStats(); renderDashboard();
+      if (failed) toast.warning('Some conversions failed', `${ok} converted, ${failed} failed. ${lastError}`);
+      else        toast.success('Done', `${ok} user(s) converted to ${ticketType} tickets.`);
+    });
 }
 
 async function bulkRemoveWaitlist() {

@@ -7,7 +7,8 @@ const ctx = (req) => ({ ip: req.ip, userAgent: req.get('user-agent') });
 const snapshot = (s) => ({
   platformFee: s.platformFee,
   platformFeeFloor: s.platformFeeFloor,
-  feePaidBy: s.feePaidBy,
+  processingFee: s.processingFee,
+  processingFeeFloor: s.processingFeeFloor,
   refundDeadlineDays: s.refundDeadlineDays,
 });
 

@@ -91,16 +91,32 @@ function viewTicket(ticketId) {
   const sMap   = { used:['badge-used','fa-circle-check','Used'], cancelled:['badge-cancelled','fa-circle-xmark','Cancelled'] };
   const [sBadge, sIcon, sLabel] = sMap[status] || ['badge-active','fa-circle-check','Active'];
 
-  // Payment split — mirrors how the API records the charge
-  const basePrice    = Number(ticket.price) || 0;
-  const platformFee  = ticket.platformFee != null ? Number(ticket.platformFee) : null;
-  const feePaidByLbl = ticket.feePaidBy === 'buyer'     ? 'Buyer'
-    : ticket.feePaidBy === 'organizer' ? 'Organizer'
-      : '—';
-  const discount     = Number(ticket.discountAmount) || 0;
-  const amountPaid   = ticket.amountPaid != null
+  // ── Money split ────────────────────────────────────────────
+  // New tickets:  platformFee = organizer-paid, processingFee = buyer-paid
+  // Legacy tickets: single fee in platformFee, payer recorded in feePaidBy
+  const basePrice      = Number(ticket.price) || 0;
+  const rawPlatformFee = ticket.platformFee   != null ? Number(ticket.platformFee)   : null;
+  const rawProcFee     = ticket.processingFee != null ? Number(ticket.processingFee) : null;
+  const isLegacy       = rawProcFee === null;
+
+  let organizerFee, buyerFee, feeBreakdownLabel;
+  if (isLegacy) {
+    // Old ticket: one fee, paid by organizer or buyer per feePaidBy
+    if (ticket.feePaidBy === 'buyer') {
+      organizerFee = 0;  buyerFee = rawPlatformFee || 0;
+    } else {
+      organizerFee = rawPlatformFee || 0;  buyerFee = 0;
+    }
+    feeBreakdownLabel = 'Legacy ticket (single fee)';
+  } else {
+    organizerFee = rawPlatformFee || 0;
+    buyerFee     = rawProcFee     || 0;
+    feeBreakdownLabel = 'Two-fee model';
+  }
+
+  const amountPaid = ticket.amountPaid != null
     ? Number(ticket.amountPaid)
-    : basePrice - discount + (ticket.feePaidBy === 'buyer' && platformFee ? platformFee : 0);
+    : basePrice + buyerFee;
 
   document.getElementById('ticket-modal-body').innerHTML = `
     <div class="detail-grid">
@@ -108,11 +124,23 @@ function viewTicket(ticketId) {
         <div class="detail-value" style="font-family:monospace;font-size:0.82rem;word-break:break-all;">${ticket.id}</div></div>
       <div class="detail-item"><div class="detail-label"><i class="fa-solid fa-tag"></i> Type</div><div class="detail-value" style="text-transform:uppercase;">${ticket.ticketType||'—'}</div></div>
       <div class="detail-item"><div class="detail-label"><i class="fa-solid fa-circle-dot"></i> Status</div><div class="detail-value"><span class="badge ${sBadge}"><i class="fa-solid ${sIcon}"></i> ${sLabel}</span></div></div>
-      <div class="detail-item"><div class="detail-label"><i class="fa-solid fa-coins"></i> Base Price</div><div class="detail-value">₵${basePrice.toFixed(2)}</div></div>
-      <div class="detail-item"><div class="detail-label"><i class="fa-solid fa-percent"></i> Platform Fee</div><div class="detail-value">${platformFee != null ? '₵' + platformFee.toFixed(2) : '—'}</div></div>
-      <div class="detail-item"><div class="detail-label"><i class="fa-solid fa-user-tag"></i> Fee Paid By</div><div class="detail-value">${feePaidByLbl}</div></div>
-      <div class="detail-item"><div class="detail-label"><i class="fa-solid fa-sack-dollar"></i> Amount Paid</div><div class="detail-value" style="color:#34d399;font-weight:700;">₵${amountPaid.toFixed(2)}</div></div>
-      <div class="detail-item" style="grid-column:span 2;"><div class="detail-label"><i class="fa-regular fa-clock"></i> Purchased At</div><div class="detail-value">${ticket.purchasedAt ? new Date(ticket.purchasedAt).toLocaleString() : '—'}</div></div>
+
+      <div class="detail-item"><div class="detail-label"><i class="fa-solid fa-coins"></i> Face Price</div>
+        <div class="detail-value">₵${basePrice.toFixed(2)}</div></div>
+      <div class="detail-item"><div class="detail-label"><i class="fa-solid fa-user-tie"></i> Platform Fee <span style="font-size:0.65rem;color:#94a3b8;">(organizer)</span></div>
+        <div class="detail-value">${organizerFee > 0 ? '-₵' + organizerFee.toFixed(2) : '—'}</div></div>
+      <div class="detail-item"><div class="detail-label"><i class="fa-solid fa-user"></i> Processing Fee <span style="font-size:0.65rem;color:#94a3b8;">(buyer)</span></div>
+        <div class="detail-value">${buyerFee > 0 ? '+₵' + buyerFee.toFixed(2) : '—'}</div></div>
+      <div class="detail-item"><div class="detail-label"><i class="fa-solid fa-sack-dollar"></i> Amount Paid</div>
+        <div class="detail-value" style="color:#34d399;font-weight:700;">₵${amountPaid.toFixed(2)}</div></div>
+
+      <div class="detail-item"><div class="detail-label"><i class="fa-regular fa-clock"></i> Purchased At</div>
+        <div class="detail-value">${ticket.purchasedAt ? new Date(ticket.purchasedAt).toLocaleString() : '—'}</div></div>
+      <div class="detail-item"><div class="detail-label"><i class="fa-solid fa-credit-card"></i> Payment</div>
+        <div class="detail-value" style="font-size:0.8rem;">${ticket.paymentGateway || '—'}${ticket.paymentIntentId ? `<br><span style="font-family:monospace;font-size:0.72rem;color:#94a3b8;">${ticket.paymentIntentId}</span>` : ''}</div></div>
+    </div>
+    <div style="padding:0.75rem 1rem;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.2);border-radius:0.5rem;margin-bottom:1rem;font-size:0.78rem;color:#94a3b8;">
+      <i class="fa-solid fa-circle-info" style="margin-right:0.4rem;"></i>${feeBreakdownLabel}
     </div>
     <div style="padding:1rem;background:#0f172a;border-radius:0.5rem;margin-bottom:1rem;">
       <h4 style="font-weight:700;margin-bottom:0.75rem;"><i class="fa-regular fa-calendar" style="color:#6366f1;margin-right:0.4rem;"></i>Event</h4>

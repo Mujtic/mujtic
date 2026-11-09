@@ -7,7 +7,11 @@ const refundSchema = new mongoose.Schema({
   // ownership is enforced in refundService.requestRefund, not here.
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true },
-  amount: { type: Number, required: true, min: 0 },    // refund amount (could be partial)
+
+  // What we're returning to the buyer. With the two-fee model this is
+  // normally the full amountPaid (face price + buyer-paid processing fee).
+  amount: { type: Number, required: true, min: 0 },
+
   reason: { type: String, required: true },
   // pending   → waiting for the organizer/admin to review (buyer requests only)
   // approved  → money is owed to the buyer, not paid out yet
@@ -36,7 +40,16 @@ const refundSchema = new mongoose.Schema({
   paymentReference: { type: String, trim: true, maxlength: 100 },
   // For partial refunds (optional)
   isPartial: { type: Boolean, default: false },
-  originalPrice: { type: Number },
+
+  // Historical ticket values captured at the moment of the refund so
+  // reports stay stable even if the Ticket document is edited later.
+  //   originalPrice      → the face price the organizer priced
+  //   originalAmountPaid → what the buyer actually paid (= price + processingFee)
+  // Nullable for refunds created before the processing-fee split; those
+  // records only have originalPrice, and downstream code should fall back
+  // to it via `originalAmountPaid ?? originalPrice`.
+  originalPrice:      { type: Number, default: null },
+  originalAmountPaid: { type: Number, default: null },
 });
 
 // --- Indexes ---

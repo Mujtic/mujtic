@@ -235,6 +235,15 @@ function viewRefund(refundId) {
         ${ev ? `<div><i class="fa-solid fa-location-dot" style="margin-right:0.3rem;"></i>${ev.venue}${ev.location ? ', '+ev.location : ''}</div>` : ''}
       </div>
     </div>
+    ${r.originalAmountPaid != null || r.originalPrice != null ? `
+    <div style="padding:1rem;background:#0f172a;border-radius:0.5rem;margin-bottom:1rem;">
+      <h4 style="font-weight:700;margin-bottom:0.75rem;"><i class="fa-solid fa-receipt" style="color:#6366f1;margin-right:0.4rem;"></i>Amount Breakdown</h4>
+      <div style="font-size:0.85rem;line-height:1.8;color:#94a3b8;">
+        ${r.originalPrice != null ? `<div>Face price: <strong style="color:#f1f5f9;">₵${Number(r.originalPrice).toFixed(2)}</strong></div>` : ''}
+        ${r.originalAmountPaid != null ? `<div>Buyer paid: <strong style="color:#f1f5f9;">₵${Number(r.originalAmountPaid).toFixed(2)}</strong></div>` : ''}
+        <div>Refunding: <strong style="color:#ef4444;">₵${Number(r.amount || 0).toFixed(2)}</strong>${r.isPartial ? ' <span class="refund-reason-pill" style="font-size:0.68rem;">Partial</span>' : ''}</div>
+      </div>
+    </div>` : ''}
     ${r.notes ? `<div style="padding:1rem;background:#0f172a;border-radius:0.5rem;margin-bottom:1rem;"><h4 style="font-weight:700;margin-bottom:0.5rem;"><i class="fa-regular fa-note-sticky"></i> Customer Notes</h4><p style="color:#94a3b8;font-size:0.875rem;">${r.notes}</p></div>` : ''}
     ${r.status === 'rejected' && r.rejectionReason ? `<div class="info-box error" style="margin-top:0.5rem;"><i class="fa-solid fa-triangle-exclamation" style="margin-right:0.4rem;"></i><strong>Rejection Reason:</strong> ${r.rejectionReason}</div>` : ''}
     ${r.status === 'pending' ? `

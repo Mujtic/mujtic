@@ -11,6 +11,7 @@ const featuredController = require('../controllers/featuredController');
 
 const auth = require('../middleware/auth');
 const { requireAdmin, requireModeratorOrAdmin } = require('../middleware/rbac');
+const { validate, convertWaitlistSchema } = require('../validators');
 
 // Every /admin/* route is authenticated here. Role gates per-route below.
 router.use('/admin', auth);
@@ -30,11 +31,20 @@ router.delete('/admin/users/:id', requireAdmin, adminController.deleteUser);
 
 // ── Waitlist ──
 // Moderators can view and notify (SMS budget is real but bounded by NOTIFY_COOLDOWN).
-// Converting creates a free ticket — financial, admin-only.
+// Converting creates a PAID ticket — the admin records the out-of-band payment
+// (gateway ref / MoMo receipt / bank ref) at conversion time, so this is
+// financial and admin-only. The validation schema requires paymentReference
+// and paymentGateway; the service applies the current fee rates and freezes
+// them onto the ticket, same as a normal checkout.
 // Deleting removes someone from the queue — admin-only (destructive).
 router.get('/admin/waitlists', requireModeratorOrAdmin, adminController.getAllWaitlists);
 router.post('/admin/waitlist/:id/notify', requireModeratorOrAdmin, adminController.notifyWaitlistEntry);
-router.post('/admin/waitlist/:id/convert', requireAdmin, adminController.convertWaitlistToTicket);
+router.post(
+  '/admin/waitlist/:id/convert',
+  requireAdmin,
+  validate(convertWaitlistSchema),
+  adminController.convertWaitlistToTicket
+);
 router.delete('/admin/waitlist/:id', requireAdmin, adminController.deleteWaitlistEntry);
 
 // ── Events ──
@@ -79,15 +89,20 @@ router.get('/admin/logs', requireModeratorOrAdmin, logController.getLogs);
 router.delete('/admin/logs', requireAdmin, logController.clearLogs);
 
 // ── Settings ──
+// Admin-only write. Moderators can still read so they see current fee rates
+// when investigating disputes, but only an admin can change them.
+// The settings service whitelist now covers: platformFee, platformFeeFloor,
+// processingFee, processingFeeFloor, refundDeadlineDays.
 router.get('/admin/settings', requireModeratorOrAdmin, settingsController.getSettings);
 router.put('/admin/settings', requireAdmin, settingsController.updateSettings);
 
 // ── Refunds ──
+// Listing everything is admin-only. Completing an approved refund marks the
+// money as actually paid out — admin-only.
 router.get('/admin/refunds/all', requireAdmin, refundController.getAllRefunds);
 router.patch('/admin/refunds/:id/complete', auth, requireAdmin, refundController.completeRefund);
 
-// ---Featured----
-
+// ── Featured ──
 router.patch('/admin/events/:id/featured', auth, requireModeratorOrAdmin, featuredController.setFeatured);
 
 module.exports = router;

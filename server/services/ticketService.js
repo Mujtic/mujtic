@@ -103,8 +103,9 @@ class TicketService {
 
   // ── checkout quote ──────────────────────────────────────────────
   // The all-in price, shown to the buyer BEFORE they pay: ticket price,
-  // discounts, the service fee (only when the buyer pays it) and the total.
+  // discounts, the buyer-paid processing fee, and the total.
   // Uses exactly the same pricing as the purchase, so the two cannot differ.
+  // The organizer-paid platform fee is intentionally NOT exposed here.
   async quotePurchase({ eventId, ticketType, quantity, promoCode } = {}, userId = null) {
     const qty = this._validateOrderInput(eventId, ticketType, quantity);
     const event = await this._loadSellableEvent(eventId);
@@ -122,8 +123,8 @@ class TicketService {
       subtotal: priced.subtotal,
       discount: round2(priced.groupDiscount + priced.promoDiscount),
       discountLabel: labels.join(' + '),
-      serviceFee: money.serviceFee,
-      feePaidBy: money.feePaidBy,
+      processingFee: money.processingFee,   // buyer-paid
+      serviceFee: money.processingFee,      // kept for frontend back-compat
       total: money.buyerTotal,
     };
   }
@@ -152,9 +153,15 @@ class TicketService {
 
     // The money for this order, worked out once and written onto every ticket:
     // a later change to the fee settings never touches past sales.
+    //
+    // Two independent fee tracks:
+    //   platformFee   → ORGANIZER-paid, deducted from payout
+    //   processingFee → BUYER-paid, added on top of the face price
     const money = await settingsService.quoteOrder(faceTotal, event);
-    const facePrices = settingsService.allocateFee(money.faceTotal, qty);   // sums exactly to the face total
-    const fees = settingsService.allocateFee(money.fee, qty);               // sums exactly to the order fee
+
+    const facePrices     = settingsService.allocateFee(money.faceTotal,     qty);   // sums to face total
+    const platformFees   = settingsService.allocateFee(money.platformFee,   qty);   // sums to organizer-paid total
+    const processingFees = settingsService.allocateFee(money.processingFee, qty);   // sums to buyer-paid total
 
     // ── Atomically reserve capacity ──
     const soldPath = `ticketTypes.${ticketType}.sold`;
@@ -195,10 +202,16 @@ class TicketService {
           eventId,
           userId,
           ticketType,
-          price: facePrices[i],                 // face price: what the organizer is paid for
-          platformFee: fees[i],                 // the platform's fee for this ticket
-          feePaidBy: money.feePaidBy,           // who pays it: 'organizer' or 'buyer'
-          amountPaid: round2(facePrices[i] + (money.feePaidBy === 'buyer' ? fees[i] : 0)),
+
+          price: facePrices[i],                            // face price
+          platformFee: platformFees[i],                    // ORGANIZER-paid
+          processingFee: processingFees[i],                // BUYER-paid
+          // Legacy field: with the split, the ticket always still carries an
+          // organizer-paid fee, so we record 'organizer'. Downstream code
+          // should prefer the platformFee / processingFee fields directly.
+          feePaidBy: 'organizer',
+          amountPaid: round2(facePrices[i] + processingFees[i]),
+
           userEmail: paymentDetails.email.toLowerCase().trim(),
           userPhone: paymentDetails.phone,
           buyerName: resolvedBuyerName,
@@ -239,7 +252,9 @@ class TicketService {
     } else if (promoDiscount > 0) {
       discountDesc = `Promo code ${appliedCoupon?.code || promoCode} applied: -₵${promoDiscount.toFixed(2)}`;
     }
-    const feeDesc = money.serviceFee > 0 ? `Service fee: ₵${money.serviceFee.toFixed(2)}` : '';
+    const feeDesc = money.processingFee > 0
+      ? `Processing fee: ₵${money.processingFee.toFixed(2)}`
+      : '';
 
     // ── Notify buyer — fire-and-forget ──
     const subjectSafe = sanitizeHeader(`Your Ticket for ${event.title}`);
@@ -339,7 +354,14 @@ class TicketService {
 
   // Admin / organizer cancellation. Same authority model as validateTicket:
   // admin any ticket, organizer only their own event's tickets.
-  // Refunds everything the buyer paid, including a service fee they paid.
+  //
+  // Refund policy:
+  //   - Both fees are refundable with the ticket.
+  //   - amountPaid already includes the buyer-paid processing fee, so
+  //     refunding it in full returns exactly what the buyer spent.
+  //   - If the business ever decides the processing fee should be retained
+  //     on cancellation, change `paid` to `round2(ticket.price + ticket.platformFee)`
+  //     or similar — and update this comment so the decision is auditable.
   async cancelTicket(ticketId, actingUser) {
     if (!ticketId) throw new AppError('ticketId is required', 400);
     if (!actingUser || !actingUser.id) {
@@ -366,6 +388,8 @@ class TicketService {
     );
     if (!locked) throw new AppError('Ticket already used, cancelled, or refunded', 400);
 
+    // amountPaid = price + processingFee, so this refunds both the ticket
+    // value and the buyer-paid processing fee (see policy comment above).
     const paid = round2(ticket.amountPaid ?? ticket.price);
 
     let refund;

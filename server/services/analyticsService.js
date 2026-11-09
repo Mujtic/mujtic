@@ -42,6 +42,10 @@ class AnalyticsService {
       { $group: {
           _id: { $dateToString: { format: '%Y-%m-%d', date: '$purchasedAt', timezone: TZ } },
           tickets: { $sum: QTY },
+          // Face value of sales — the organizer's earning side. Buyer-paid
+          // processing fees live on amountPaid and are intentionally NOT
+          // included here: the chart shows the organizer's revenue, not the
+          // buyer's spend.
           revenue: { $sum: REVENUE },
         } },
     ]);
@@ -86,21 +90,44 @@ class AnalyticsService {
         .reduce((sum, p) => sum + (p.amount || 0), 0);
 
     return {
+      // ── Organizer-side fee ─────────────────────────────────────
+      // The part the organizer actually bears. Deducted from their payouts.
+      // Matches `organizerFees` below.
       feePercent: settings.platformFee,
-      feeFloor: settings.platformFeeFloor,
+      feeFloor:   settings.platformFeeFloor,
+
+      // ── Buyer-side fee ─────────────────────────────────────────
+      // Shown for transparency (e.g. "buyers pay an extra 2% at checkout").
+      // Never deducted from the organizer.
+      processingFeePercent: settings.processingFee,
+      processingFeeFloor:   settings.processingFeeFloor,
+
+      // ── Volume ─────────────────────────────────────────────────
       totalEvents: breakdown.totalEvents,
       ticketsSold: breakdown.ticketsSold,
-      grossRevenue: breakdown.gross,           // face value of sales
-      platformFees: breakdown.fees,            // all platform fees
-      organizerFees: breakdown.organizerFees,  // the part deducted from this organizer
-      netRevenue: breakdown.net,               // what the organizer has earned
+      grossRevenue: breakdown.gross,            // face value of sales
+
+      // ── Fees ───────────────────────────────────────────────────
+      // `platformFees` is the TOTAL platform take on this organizer's sales
+      // (organizer-side + buyer-side). Kept under this name for existing
+      // dashboard frontends. Use `organizerFees` / `buyerFees` when the UI
+      // needs to split it.
+      platformFees:  breakdown.fees,
+      organizerFees: breakdown.organizerFees,   // deducted from this organizer
+      buyerFees:     breakdown.buyerFees,       // added on top, at checkout
+
+      // ── Net ────────────────────────────────────────────────────
+      netRevenue: breakdown.net,                // gross − organizerFees
+
+      // ── Payouts ────────────────────────────────────────────────
       completedPayouts: r2(paid('completed')),
-      // requested or approved but not yet sent
-      pendingPayouts: r2(paid('pending') + paid('approved')),
-      approvedPayouts: r2(paid('approved')),
+      pendingPayouts:   r2(paid('pending') + paid('approved')),
+      approvedPayouts:  r2(paid('approved')),
       availableForPayout,
+
+      // ── Detail ─────────────────────────────────────────────────
       perEvent: breakdown.perEvent,
-      byType: breakdown.byType,
+      byType:   breakdown.byType,
     };
   }
 }

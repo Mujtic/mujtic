@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Glycr Admin Panel</title>
+  <link rel="icon" sizes="32x32" href="../public/img/m-favicon.ico">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <link rel="stylesheet" href="css/main.css">
 </head>
@@ -1219,17 +1220,19 @@
 
 <!-- Convert Waitlist to Ticket Modal -->
 <div id="waitlist-convert-modal" class="modal">
-  <div class="modal-content" style="max-width:480px;">
+  <div class="modal-content" style="max-width:520px;">
     <div class="modal-header">
-      <h3 class="modal-title"><i class="fa-solid fa-ticket" style="color:#10b981; margin-right:0.5rem;"></i>Convert to Ticket</h3>
+      <h3 class="modal-title"><i class="fa-solid fa-ticket" style="color:#10b981; margin-right:0.5rem;"></i>Convert to Paid Ticket</h3>
       <button class="modal-close" onclick="closeModal('waitlist-convert-modal')"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="waitlist-convert-id">
+
       <div style="padding:1rem; background:#0f172a; border-radius:0.5rem; margin-bottom:1.25rem;">
         <div style="font-size:0.72rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:0.5rem;">Converting</div>
         <div id="waitlist-convert-info" style="font-size:0.875rem; color:#f1f5f9;"></div>
       </div>
+
       <div class="settings-row">
         <span class="settings-label"><i class="fa-solid fa-tag" style="margin-right:0.5rem;"></i>Ticket Type</span>
         <select class="settings-input" id="waitlist-convert-type" style="width:220px;">
@@ -1239,12 +1242,42 @@
           <option value="free">Free</option>
         </select>
       </div>
-      <div style="padding:0.75rem 1rem; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); border-radius:0.5rem; margin-top:1rem; font-size:0.8rem; color:#34d399;">
-        <i class="fa-solid fa-circle-info" style="margin-right:0.4rem;"></i>This will remove the user from the waitlist and create an active ticket.
+
+      <div class="settings-row">
+        <span class="settings-label"><i class="fa-solid fa-credit-card" style="margin-right:0.5rem;"></i>Gateway</span>
+        <select class="settings-input" id="waitlist-convert-gateway" style="width:220px;">
+          <option value="manual">Manual (MoMo / cash / bank)</option>
+          <option value="paystack">Paystack</option>
+          <option value="stripe">Stripe</option>
+          <option value="paypal">PayPal</option>
+        </select>
       </div>
+
+      <div class="settings-row">
+        <span class="settings-label"><i class="fa-solid fa-receipt" style="margin-right:0.5rem;"></i>Payment Reference <span style="color:#ef4444;">*</span></span>
+        <input type="text" class="settings-input" id="waitlist-convert-ref"
+               placeholder="MoMo receipt / bank ref / transaction ID" style="width:220px;">
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-label"><i class="fa-solid fa-money-bill-wave" style="margin-right:0.5rem;"></i>Amount Paid</span>
+        <input type="number" step="0.01" min="0" class="settings-input" id="waitlist-convert-amount"
+               placeholder="Auto (calculated)" style="width:220px;">
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-label"><i class="fa-regular fa-calendar" style="margin-right:0.5rem;"></i>Paid At</span>
+        <input type="datetime-local" class="settings-input" id="waitlist-convert-paidat" style="width:220px;">
+      </div>
+
+      <div style="padding:0.75rem 1rem; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); border-radius:0.5rem; margin-top:1rem; font-size:0.8rem; color:#fbbf24;">
+        <i class="fa-solid fa-triangle-exclamation" style="margin-right:0.4rem;"></i>
+        Record the payment reference before converting. Leave Amount Paid blank to use the calculated buyer total; enter it only if the collected amount differs.
+      </div>
+
       <div style="display:flex; gap:0.75rem; margin-top:1.5rem;">
         <button class="btn btn-success" style="flex:1;" onclick="submitWaitlistConvert()">
-          <i class="fa-solid fa-ticket"></i> Convert to Ticket
+          <i class="fa-solid fa-ticket"></i> Convert &amp; Record Payment
         </button>
         <button class="btn" style="background:#334155; color:#f1f5f9;" onclick="closeModal('waitlist-convert-modal')">Cancel</button>
       </div>
@@ -1720,10 +1753,15 @@
       <!-- Platform Fees -->
       <div id="settings-panel-platform" class="settings-panel" role="tabpanel">
 
+        <!-- ── Organizer-side: deducted from payouts ──────────────── -->
+        <p style="font-size:0.7rem; color:#475569; text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin:0.25rem 0 0.5rem;">
+          <i class="fa-solid fa-user-tie" style="margin-right:0.35rem;"></i>Organizer-side (deducted from payouts)
+        </p>
+
         <div class="settings-row">
           <div class="settings-row-info">
             <span class="settings-row-title">Platform Fee</span>
-            <span class="settings-row-hint">Percentage taken from each ticket sale</span>
+            <span class="settings-row-hint">Percentage taken from each sale, deducted from the organizer</span>
           </div>
           <div class="settings-row-control">
             <input type="number" class="settings-input settings-input--compact"
@@ -1734,8 +1772,8 @@
 
         <div class="settings-row">
           <div class="settings-row-info">
-            <span class="settings-row-title">Minimum Fee per Order</span>
-            <span class="settings-row-hint">0 = no minimum</span>
+            <span class="settings-row-title">Minimum Platform Fee per Order</span>
+            <span class="settings-row-hint">0 = no minimum. Never more than the order total.</span>
           </div>
           <div class="settings-row-control">
             <span class="settings-row-unit">₵</span>
@@ -1744,21 +1782,40 @@
           </div>
         </div>
 
+        <!-- ── Buyer-side: added at checkout ───────────────────────── -->
+        <p style="font-size:0.7rem; color:#475569; text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin:1.25rem 0 0.5rem;">
+          <i class="fa-solid fa-user" style="margin-right:0.35rem;"></i>Buyer-side (added at checkout)
+        </p>
+
         <div class="settings-row">
           <div class="settings-row-info">
-            <span class="settings-row-title">Who Pays the Fee (default)</span>
-            <span class="settings-row-hint">Organizers can override per event</span>
+            <span class="settings-row-title">Processing Fee</span>
+            <span class="settings-row-hint">Percentage added on top of the ticket price. Always paid by the buyer.</span>
           </div>
-          <select class="settings-input settings-input--medium" id="fee-paid-by-setting">
-            <option value="organizer">Organizer (deducted)</option>
-            <option value="buyer">Buyer (added on top)</option>
-          </select>
+          <div class="settings-row-control">
+            <input type="number" class="settings-input settings-input--compact"
+                   id="processing-fee-setting" min="0" max="50" step="0.1" value="0">
+            <span class="settings-row-unit">%</span>
+          </div>
         </div>
 
         <div class="settings-row">
           <div class="settings-row-info">
+            <span class="settings-row-title">Minimum Processing Fee per Order</span>
+            <span class="settings-row-hint">0 = no minimum. Never more than the order total.</span>
+          </div>
+          <div class="settings-row-control">
+            <span class="settings-row-unit">₵</span>
+            <input type="number" class="settings-input settings-input--compact"
+                   id="processing-fee-floor-setting" min="0" max="50" step="0.01" value="0">
+          </div>
+        </div>
+
+        <!-- ── Refunds ────────────────────────────────────────────── -->
+        <div class="settings-row" style="margin-top:0.5rem;">
+          <div class="settings-row-info">
             <span class="settings-row-title">Refund Deadline</span>
-            <span class="settings-row-hint">Days after purchase a refund may be requested</span>
+            <span class="settings-row-hint">Days before the event after which a refund cannot be requested</span>
           </div>
           <div class="settings-row-control">
             <input type="number" class="settings-input settings-input--compact"

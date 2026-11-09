@@ -190,6 +190,11 @@ async function submitResetPassword() {
 
 // ─────────────────────────────────────────────────────────────
 // Platform settings: load / save
+//
+// Two independent fee tracks:
+//   Organizer-side  → platformFee / platformFeeFloor  (deducted from payouts)
+//   Buyer-side      → processingFee / processingFeeFloor (added at checkout)
+// The "feePaidBy" toggle is gone — the payer is no longer a choice.
 // ─────────────────────────────────────────────────────────────
 
 async function openSettingsModal() {
@@ -200,25 +205,33 @@ async function openSettingsModal() {
 async function loadPlatformFee() {
   try {
     const res = await apiRequest('/admin/settings');
-    platformFeePercent = Number(res.platformFee)        || 3;
-    platformFeeFloor   = Number(res.platformFeeFloor)   || 0;
 
-    const feeEl     = document.getElementById('platform-fee-setting');
-    const floorEl   = document.getElementById('platform-fee-floor-setting');
-    const payerEl   = document.getElementById('fee-paid-by-setting');
-    const refundEl  = document.getElementById('refund-deadline-setting');
-    const updatedEl = document.getElementById('settings-updated-at');
+    // Cache the values on globals used elsewhere in the panel
+    platformFeePercent   = Number(res.platformFee)          || 3;
+    platformFeeFloor     = Number(res.platformFeeFloor)     || 0;
+    processingFeePercent = Number(res.processingFee)        || 0;
+    processingFeeFloor   = Number(res.processingFeeFloor)   || 0;
 
-    if (feeEl)     feeEl.value     = platformFeePercent;
-    if (floorEl)   floorEl.value   = platformFeeFloor;
-    if (payerEl)   payerEl.value   = res.feePaidBy || 'organizer';
-    if (refundEl)  refundEl.value  = Number(res.refundDeadlineDays) || 7;
-    if (updatedEl) updatedEl.textContent = res.updatedAt
+    const feeEl             = document.getElementById('platform-fee-setting');
+    const floorEl           = document.getElementById('platform-fee-floor-setting');
+    const processingFeeEl   = document.getElementById('processing-fee-setting');
+    const processingFloorEl = document.getElementById('processing-fee-floor-setting');
+    const refundEl          = document.getElementById('refund-deadline-setting');
+    const updatedEl         = document.getElementById('settings-updated-at');
+
+    if (feeEl)             feeEl.value             = platformFeePercent;
+    if (floorEl)           floorEl.value           = platformFeeFloor;
+    if (processingFeeEl)   processingFeeEl.value   = processingFeePercent;
+    if (processingFloorEl) processingFloorEl.value = processingFeeFloor;
+    if (refundEl)          refundEl.value          = Number(res.refundDeadlineDays) || 7;
+    if (updatedEl)         updatedEl.textContent   = res.updatedAt
       ? new Date(res.updatedAt).toLocaleString()
       : '—';
   } catch (err) {
-    platformFeePercent = 3;
-    platformFeeFloor   = 0;
+    platformFeePercent   = 3;
+    platformFeeFloor     = 0;
+    processingFeePercent = 0;
+    processingFeeFloor   = 0;
     console.warn('Failed to load platform settings', err);
   }
 }
@@ -229,40 +242,54 @@ async function savePlatformFee() {
     return false;
   }
 
-  const fee    = parseFloat(document.getElementById('platform-fee-setting').value);
-  const floor  = parseFloat(document.getElementById('platform-fee-floor-setting').value);
-  const payer  = document.getElementById('fee-paid-by-setting').value;
-  const refund = parseInt(document.getElementById('refund-deadline-setting').value, 10);
+  const fee             = parseFloat(document.getElementById('platform-fee-setting').value);
+  const floor           = parseFloat(document.getElementById('platform-fee-floor-setting').value);
+  const processingFee   = parseFloat(document.getElementById('processing-fee-setting').value);
+  const processingFloor = parseFloat(document.getElementById('processing-fee-floor-setting').value);
+  const refund          = parseInt(document.getElementById('refund-deadline-setting').value, 10);
 
-  if (isNaN(fee)    || fee < 0 || fee > 50)       { toast.warning('Invalid value', 'Platform fee must be between 0 and 50.');    return false; }
-  if (isNaN(floor)  || floor < 0 || floor > 50)   { toast.warning('Invalid value', 'Minimum fee must be between 0 and 50.');     return false; }
-  if (!['organizer','buyer'].includes(payer))     { toast.warning('Invalid value', 'Fee payer must be organizer or buyer.');     return false; }
-  if (isNaN(refund) || refund < 0 || refund > 365){ toast.warning('Invalid value', 'Refund deadline must be between 0 and 365.'); return false; }
+  // Validate all five fields
+  if (isNaN(fee)             || fee < 0             || fee > 50)  { toast.warning('Invalid value', 'Platform fee must be between 0 and 50.');           return false; }
+  if (isNaN(floor)           || floor < 0           || floor > 50){ toast.warning('Invalid value', 'Minimum platform fee must be between 0 and 50.'); return false; }
+  if (isNaN(processingFee)   || processingFee < 0   || processingFee > 50)
+  { toast.warning('Invalid value', 'Processing fee must be between 0 and 50.'); return false; }
+  if (isNaN(processingFloor) || processingFloor < 0 || processingFloor > 50)
+  { toast.warning('Invalid value', 'Minimum processing fee must be between 0 and 50.'); return false; }
+  if (isNaN(refund)          || refund < 0          || refund > 365)
+  { toast.warning('Invalid value', 'Refund deadline must be between 0 and 365.'); return false; }
 
+  // Snapshot before/after for the audit message
+  const before = {
+    platformFee: platformFeePercent, platformFeeFloor: platformFeeFloor,
+    processingFee: processingFeePercent, processingFeeFloor: processingFeeFloor,
+  };
   const body = {
-    platformFee:        fee,
-    platformFeeFloor:   floor,
-    feePaidBy:          payer,
-    refundDeadlineDays: refund,
+    platformFee:         fee,
+    platformFeeFloor:    floor,
+    processingFee:       processingFee,
+    processingFeeFloor:  processingFloor,
+    refundDeadlineDays:  refund,
   };
 
   try {
     const res = await apiRequest('/admin/settings', { method: 'PUT', body: JSON.stringify(body) });
 
-    platformFeePercent = Number(res.platformFee      ?? fee);
-    platformFeeFloor   = Number(res.platformFeeFloor ?? floor);
+    platformFeePercent   = Number(res.platformFee          ?? fee);
+    platformFeeFloor     = Number(res.platformFeeFloor     ?? floor);
+    processingFeePercent = Number(res.processingFee        ?? processingFee);
+    processingFeeFloor   = Number(res.processingFeeFloor   ?? processingFloor);
 
     const updatedEl = document.getElementById('settings-updated-at');
     if (updatedEl) updatedEl.textContent =
       new Date(res.updatedAt || Date.now()).toLocaleString();
 
     await addLog('system',
-      `Platform settings updated — fee ${fee}%, floor ₵${floor}, paid by ${payer}, refund window ${refund}d`,
-      { adminName: currentAdmin.name, adminRole: currentAdmin.role });
+      `Settings updated — platform ${fee}% / ₵${floor}, processing ${processingFee}% / ₵${processingFloor}, refunds ${refund}d`,
+      { adminName: currentAdmin.name, adminRole: currentAdmin.role, before, after: body });
 
     await loadData();
     toast.success('Settings saved',
-      `Fee ${fee}% · floor ₵${floor} · paid by ${payer} · refunds ${refund}d`);
+      `Platform ${fee}% · ₵${floor} · Processing ${processingFee}% · ₵${processingFloor}`);
     return true;
   } catch (err) {
     toast.error('Save failed', err.message || 'Could not save settings.');

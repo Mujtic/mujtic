@@ -6,29 +6,26 @@ const { logger } = require('../config/logger');
 // Fields an admin is allowed to update via this API.
 // Anything not listed is silently ignored.
 //
-// Only include fields here that have a real consumer somewhere in the
-// services layer. If you add a field here without wiring it up, admin
-// updates will look successful but nothing will actually change.
+// Two independent fee tracks:
+//
+//   ORGANIZER side (deducted from payout):
+//     platformFee      → the percentage
+//     platformFeeFloor → minimum fee per order, in cedis (0 = no minimum)
+//
+//   BUYER side (added on top at checkout, always):
+//     processingFee      → the percentage
+//     processingFeeFloor → minimum fee per order, in cedis (0 = no minimum)
 //
 // To add a field: (1) add to this list, (2) add a validator below,
 // (3) add the field to models/Settings.js, AND (4) read it from the
 // relevant service.
-//
-//   platformFee      → the percentage (kept under its original name so the
-//                      website, the admin panel and the payout/analytics
-//                      services that already read it keep working)
-//   platformFeeFloor → minimum fee per order, in Ghana cedis (0 = no minimum)
-//   feePaidBy        → platform default for who pays the fee: 'organizer'
-//                      (deducted from their sales) or 'buyer' (added at
-//                      checkout). An event can override it.
 const EDITABLE_FIELDS = [
   'platformFee',
   'platformFeeFloor',
-  'feePaidBy',
+  'processingFee',
+  'processingFeeFloor',
   'refundDeadlineDays',
 ];
-
-const FEE_PAYERS = ['organizer', 'buyer'];
 
 // The minimum fee is written in cedis, so it only applies to events priced in
 // cedis. Events in other currencies pay the percentage only.
@@ -38,7 +35,6 @@ const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 const validators = {
   platformFee: (v) => {
-    // Aligned with schema: max 50 (a 100% platform fee is not a real config)
     if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 50) {
       throw new AppError('platformFee must be a number between 0 and 50', 400);
     }
@@ -48,9 +44,14 @@ const validators = {
       throw new AppError('platformFeeFloor must be a number of cedis between 0 and 50', 400);
     }
   },
-  feePaidBy: (v) => {
-    if (!FEE_PAYERS.includes(v)) {
-      throw new AppError('feePaidBy must be "organizer" or "buyer"', 400);
+  processingFee: (v) => {
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 50) {
+      throw new AppError('processingFee must be a number between 0 and 50', 400);
+    }
+  },
+  processingFeeFloor: (v) => {
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 50) {
+      throw new AppError('processingFeeFloor must be a number of cedis between 0 and 50', 400);
     }
   },
   refundDeadlineDays: (v) => {
@@ -64,11 +65,16 @@ class SettingsService {
   async getSettings() {
     // Atomic upsert — prevents the race where two concurrent requests both
     // find nothing and both create a settings doc (leaving duplicates behind).
-    // The defaults change nothing for existing platforms: 3%, no minimum,
-    // and the organizer pays.
     return Settings.findOneAndUpdate(
       {},
-      { $setOnInsert: { platformFee: 3, platformFeeFloor: 0, feePaidBy: 'organizer' } },
+      {
+        $setOnInsert: {
+          platformFee: 3,
+          platformFeeFloor: 0,
+          processingFee: 0,
+          processingFeeFloor: 0,
+        },
+      },
       { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
     );
   }
@@ -118,31 +124,53 @@ class SettingsService {
 
   // ── fee calculation ─────────────────────────────────────────────
 
-  // Fee for ONE order (one payment): the larger of the percentage and the
-  // minimum, but never more than the order itself. Free orders pay nothing.
-  async calculatePlatformFee(amount, currency = FLOOR_CURRENCY) {
-    const settings = await this.getSettings();
-    return this.computeFee(amount, currency, settings);
+  // Shared pure calculator (works in minor units to avoid float drift).
+  // Fee = MAX(percentageFee, floorFee), capped at the order total.
+  computeFeeMinor(totalMinor, percent, floorCedis, currency) {
+    const percentFee = Math.round(totalMinor * percent / 100);
+    const floorFee = String(currency || '').toUpperCase() === FLOOR_CURRENCY
+      ? Math.round((Number(floorCedis) || 0) * 100)
+      : 0;
+    return Math.min(totalMinor, Math.max(percentFee, floorFee));
   }
 
-  // Pure version (no database access) so it can be tested and reused.
-  // Works in minor units (pesewas / cents) to avoid floating-point drift.
-  computeFee(amount, currency, settings) {
+  // Platform fee — organizer pays, deducted from their payout.
+  computePlatformFee(amount, currency, settings) {
     const total = Number(amount);
     if (!Number.isFinite(total) || total <= 0) return 0;
+    return this.computeFeeMinor(
+      Math.round(total * 100),
+      Number(settings?.platformFee) || 0,
+      Number(settings?.platformFeeFloor) || 0,
+      currency
+    ) / 100;
+  }
 
-    const totalMinor = Math.round(total * 100);
-    const percent = Number(settings?.platformFee) || 0;
-    const floor = String(currency || '').toUpperCase() === FLOOR_CURRENCY
-      ? (Number(settings?.platformFeeFloor) || 0)
-      : 0;
+  // Processing fee — buyer pays, added on top of the ticket price.
+  computeProcessingFee(amount, currency, settings) {
+    const total = Number(amount);
+    if (!Number.isFinite(total) || total <= 0) return 0;
+    return this.computeFeeMinor(
+      Math.round(total * 100),
+      Number(settings?.processingFee) || 0,
+      Number(settings?.processingFeeFloor) || 0,
+      currency
+    ) / 100;
+  }
 
-    const percentFee = Math.round(totalMinor * percent / 100);
-    const floorFee = Math.round(floor * 100);
+  // Back-compat alias — this used to be the only fee.
+  computeFee(amount, currency, settings) {
+    return this.computePlatformFee(amount, currency, settings);
+  }
 
-    // never charge more than the order is worth
-    const fee = Math.min(totalMinor, Math.max(percentFee, floorFee));
-    return fee / 100;
+  async calculatePlatformFee(amount, currency = FLOOR_CURRENCY) {
+    const settings = await this.getSettings();
+    return this.computePlatformFee(amount, currency, settings);
+  }
+
+  async calculateProcessingFee(amount, currency = FLOOR_CURRENCY) {
+    const settings = await this.getSettings();
+    return this.computeProcessingFee(amount, currency, settings);
   }
 
   // Splits an amount across tickets so the parts add up exactly
@@ -156,32 +184,30 @@ class SettingsService {
     return Array.from({ length: n }, (_, i) => (base + (i < remainder ? 1 : 0)) / 100);
   }
 
-  // Who pays for this event: the event's own choice if it has one,
-  // otherwise the platform default.
-  resolveFeePayer(event, settings) {
-    if (FEE_PAYERS.includes(event?.feePaidBy)) return event.feePaidBy;
-    if (FEE_PAYERS.includes(settings?.feePaidBy)) return settings.feePaidBy;
-    return 'organizer';
-  }
-
   // Everything both sides need to know about one order's money. `faceTotal`
   // is the ticket value after discounts (what the organizer priced).
-  //   serviceFee   → the extra line the buyer sees (0 when the organizer pays)
-  //   buyerTotal   → what the buyer is charged
-  //   organizerNet → what the organizer keeps from this order
+  //   platformFee    → deducted from the organizer
+  //   processingFee  → added on top of the buyer's total (ALWAYS)
+  //   serviceFee     → what the buyer sees as an extra line (== processingFee)
+  //   buyerTotal     → faceTotal + processingFee
+  //   organizerNet   → faceTotal - platformFee
   async quoteOrder(faceTotal, event) {
     const settings = await this.getSettings();
     const face = round2(faceTotal);
-    const feePaidBy = this.resolveFeePayer(event, settings);
-    const fee = this.computeFee(face, event?.currency, settings);
+    const platformFee = this.computePlatformFee(face, event?.currency, settings);
+    const processingFee = this.computeProcessingFee(face, event?.currency, settings);
 
     return {
       faceTotal: face,
-      fee,
-      feePaidBy,
-      serviceFee: feePaidBy === 'buyer' ? fee : 0,
-      buyerTotal: round2(face + (feePaidBy === 'buyer' ? fee : 0)),
-      organizerNet: round2(face - (feePaidBy === 'organizer' ? fee : 0)),
+      platformFee,
+      processingFee,
+      serviceFee: processingFee,
+      buyerTotal: round2(face + processingFee),
+      organizerNet: round2(face - platformFee),
+
+      // Back-compat for any caller that only knows about `fee` / `feePaidBy`.
+      fee: processingFee,
+      feePaidBy: 'buyer',
     };
   }
 }

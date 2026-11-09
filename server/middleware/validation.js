@@ -19,14 +19,11 @@ const registerSchema = Joi.object({
   phone: Joi.string().pattern(/^\+233\d{9}$/).required(),
   isOrganizer: Joi.boolean().default(false),
   currency: Joi.string().valid('USD', 'EUR', 'GBP', 'CAD', 'GHC').default('GHC'),
-  // in registerSchema, after `currency`
   acceptedTerms: Joi.boolean().valid(true).required()
     .messages({
       'any.only': 'You must accept the Terms of Service and Privacy Policy',
       'any.required': 'You must accept the Terms of Service and Privacy Policy',
     }),
-
-// add `deactivateSchema` to module.exports
 });
 
 // Login schema — accepts email OR username.
@@ -43,8 +40,6 @@ const loginSchema = Joi.object({
 
 // Update profile schema — must match userService.updateProfile's ALLOWED
 // whitelist: name, phone, avatar, bio, email, username.
-// `currency` was removed (it was accepted here but silently dropped by the
-// service — a UI/API promise with no backing behavior).
 const updateProfileSchema = Joi.object({
   name: Joi.string().optional(),
   email: Joi.string().email().optional(),
@@ -63,6 +58,12 @@ const updateProfileSchema = Joi.object({
 
 // Event schema — must match eventService.ORGANIZER_WRITABLE_FIELDS and
 // models/Event.js.
+//
+// feePaidBy was removed here: the Event model no longer has it. The fee
+// payer is no longer per-event — the platform fee is always paid by the
+// organizer and the processing fee is always paid by the buyer, both
+// frozen onto each Ticket at purchase time. If a client still sends
+// feePaidBy, `stripUnknown: true` drops it before validation.
 const eventSchema = Joi.object({
   title: Joi.string().required(),
   description: Joi.string().required(),
@@ -92,14 +93,6 @@ const eventSchema = Joi.object({
   // the Joi schema, `stripUnknown: true` would silently discard it and
   // scheduled publishing would be dead again.
   publishAt: Joi.date().iso().optional().allow(null),
-  // Per-event override for who pays the platform fee.
-  // Allow null (explicit "use platform default") and '' (empty form value).
-  // '' is converted to null by the Mongoose `set` transformer on save.
-  feePaidBy: Joi.string()
-    .valid('organizer', 'buyer')
-    .allow(null, '')
-    .optional(),
-
 });
 
 // Waitlist schema
@@ -172,8 +165,28 @@ const payoutSchema = Joi.object({
   details: Joi.object().optional().allow(null),
 });
 
+// Convert a waitlist entry into a paid ticket. The admin is recording the
+// out-of-band payment, so the reference and gateway are required — this is
+// the only audit trail linking the ticket to the money that was collected.
+const convertWaitlistSchema = Joi.object({
+  ticketType: Joi.string().required(),
+  paymentReference: Joi.string().trim().min(1).max(100).required()
+    .messages({
+      'string.empty': 'Payment reference is required (gateway ID, MoMo receipt, or bank ref)',
+      'any.required': 'Payment reference is required (gateway ID, MoMo receipt, or bank ref)',
+    }),
+  paymentGateway: Joi.string().valid('stripe', 'paystack', 'paypal', 'manual').required()
+    .messages({
+      'any.only':     'Payment gateway must be one of: stripe, paystack, paypal, manual',
+      'any.required': 'Payment gateway is required',
+    }),
+  // Optional overrides; the service defaults amountPaid to the calculated
+  // buyer total and paidAt to now.
+  amountPaid: Joi.number().min(0).optional().allow(null),
+  paidAt: Joi.date().iso().optional().allow(null),
+});
 
-// new schema
+// Deactivate account schema
 const deactivateSchema = Joi.object({
   password: Joi.string().required(),
 });
@@ -205,6 +218,7 @@ module.exports = {
   eventSchema,
   waitlistSchema,
   payoutSchema,
+  convertWaitlistSchema,
   validate,
   sanitizeText,
   deactivateSchema,

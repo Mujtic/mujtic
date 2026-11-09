@@ -17,8 +17,10 @@ let serviceRequests = [];
 let messages        = [];
 let transactions    = [];
 let stats           = {};
-let platformFeePercent = 3;
+let platformFeePercent = 0;
 let platformFeeFloor   = 0;
+let processingFeePercent = 0;
+let processingFeeFloor   = 0;
 
 const selectedIds = {
   users: new Set(),

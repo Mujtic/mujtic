@@ -15,6 +15,7 @@ const { escapeHtml, sanitizeHtml } = require('../utils/htmlSecurity');
 const eventService = require('../services/eventService');
 const payoutService = require('./payoutService');
 const userService = require('./userService');
+const settingsService = require('./settingsService');
 
 class AdminService {
   // ---------- Dashboard ----------
@@ -278,7 +279,6 @@ class AdminService {
     return payoutService.rejectPayout(payoutId, reason, processedById);
   }
 
-  // adminService.js
   async completePayout(adminId, payoutId, paymentReference) {
     return payoutService.completePayout(payoutId, adminId, paymentReference);
   }
@@ -332,18 +332,64 @@ class AdminService {
     return { success: true };
   }
 
-  async convertWaitlistToTicket(entryId, ticketType) {
+  // Convert a waitlist entry into a PAID ticket.
+  //
+  // Payment is collected out of band (MoMo / bank / gateway) before this is
+  // called, so the caller must supply:
+  //   paymentReference → the gateway transaction ID / MoMo receipt / bank ref
+  //   paymentGateway   → one of the Ticket model's enum values
+  // Optional:
+  //   amountPaid → what the buyer actually paid. Defaults to the calculated
+  //                buyer total (price + processingFee). Override only when the
+  //                collected amount differs (e.g. cash round-up).
+  //   paidAt     → when the money actually landed. Defaults to now. Recorded
+  //                as Ticket.purchasedAt so sales-trend reports match reality.
+  //
+  // Fee fields (platformFee / processingFee) are frozen at current rates and
+  // written onto the ticket exactly like ticketService.purchaseTicket, so
+  // downstream services (revenue, refunds, payout, analytics) see a normal
+  // paid ticket — no legacy fallback.
+  //
+  // Idempotency: rejects if the customer already has an active/used ticket
+  // for this event + type, so a retry after a partial failure does not
+  // create a duplicate sale. The waitlist entry is deleted as the last step,
+  // so a partial failure leaves it intact for the admin to retry.
+  async convertWaitlistToTicket(entryId, ticketType, paymentInfo = {}) {
+    const { paymentReference, paymentGateway, amountPaid, paidAt } = paymentInfo;
+
+    // ── Validate payment info ──
+    if (!paymentReference || typeof paymentReference !== 'string' || !paymentReference.trim()) {
+      throw new AppError(
+        'paymentReference is required — record the gateway transaction ID, MoMo receipt, or bank reference',
+        400
+      );
+    }
+    const ALLOWED_GATEWAYS = ['stripe', 'paystack', 'paypal', 'manual'];
+    if (!paymentGateway || !ALLOWED_GATEWAYS.includes(paymentGateway)) {
+      throw new AppError(
+        `paymentGateway is required and must be one of: ${ALLOWED_GATEWAYS.join(', ')}`,
+        400
+      );
+    }
+
+    // ── Load waitlist entry ──
     const entry = await Waitlist.findById(entryId).populate('eventId');
     if (!entry) throw new AppError('Waitlist entry not found', 404);
 
     const event = entry.eventId;
     if (!event) throw new AppError('Event no longer exists', 404);
+    if (event.isCancelled) {
+      throw new AppError('Event has been cancelled — refund the payment instead', 400);
+    }
+    if (event.isPublished === false) {
+      throw new AppError('Event is not published — publish it before converting', 400);
+    }
 
+    // ── Validate ticket type ──
     const ticketTypes = event.ticketTypes;
     if (!ticketTypes || !(ticketTypes instanceof Map)) {
       throw new AppError('Event ticket types are corrupted', 500);
     }
-
     if (typeof ticketType !== 'string' || !ticketType.trim()) {
       throw new AppError('Ticket type is required', 400);
     }
@@ -351,12 +397,8 @@ class AdminService {
     const normalizedType = ticketType.trim().toLowerCase();
     let matchedKey = null;
     for (const [key] of ticketTypes.entries()) {
-      if (key.toLowerCase() === normalizedType) {
-        matchedKey = key;
-        break;
-      }
+      if (key.toLowerCase() === normalizedType) { matchedKey = key; break; }
     }
-
     if (!matchedKey) {
       const available = Array.from(ticketTypes.keys()).join(', ');
       throw new AppError(
@@ -366,8 +408,31 @@ class AdminService {
     }
 
     const typeData = ticketTypes.get(matchedKey);
-    if (typeData.sold >= typeData.capacity) throw new AppError('Tickets sold out', 409);
+    if (typeData.sold >= typeData.capacity) {
+      throw new AppError('Tickets sold out — refund the payment instead', 409);
+    }
 
+    // ── Idempotency: has this customer already been converted? ──
+    // Checks by email + event + type, so a retry after a partial failure
+    // (ticket created, waitlist delete failed) doesn't create a second
+    // ticket. If the ticket exists, we just clean up the waitlist entry and
+    // return it — the admin's retry converges to the correct state.
+    const alreadyPurchased = await Ticket.findOne({
+      eventId: event._id,
+      ticketType: matchedKey,
+      userEmail: String(entry.email).toLowerCase().trim(),
+      status: { $in: ['active', 'used'] },
+    }).select('id').lean();
+    if (alreadyPurchased) {
+      await Waitlist.findByIdAndDelete(entryId);
+      return {
+        success: true,
+        alreadyConverted: true,
+        ticket: { id: alreadyPurchased.id, ticketType: matchedKey },
+      };
+    }
+
+    // ── Resolve / create user ──
     let user = await User.findOne({ email: entry.email });
     if (!user) {
       user = new User({
@@ -380,24 +445,64 @@ class AdminService {
       await user.save();
     }
 
+    // ── Fees: frozen at current rates, same as ticketService.purchaseTicket ──
+    const money = await settingsService.quoteOrder(typeData.price, event);
+
+    // What the buyer actually paid. Default to the calculated buyer total;
+    // override only if the collected amount differs.
+    const actualAmountPaid =
+      amountPaid != null && amountPaid !== ''
+        ? Math.round(Number(amountPaid) * 100) / 100
+        : money.buyerTotal;
+    if (!Number.isFinite(actualAmountPaid) || actualAmountPaid < 0) {
+      throw new AppError('amountPaid must be a non-negative number', 400);
+    }
+
+    // When the money landed. Defaults to now, recorded as purchasedAt so
+    // reports use the payment date, not the conversion date.
+    const purchasedAt = paidAt ? new Date(paidAt) : new Date();
+    if (isNaN(purchasedAt)) throw new AppError('paidAt must be a valid date', 400);
+
+    // ── Create the ticket ──
     const ticketId = uuidv4();
     const ticket = new Ticket({
       id: ticketId,
       eventId: event._id,
       userId: user._id,
       ticketType: matchedKey,
+
+      // Money (frozen at conversion time)
       price: typeData.price,
-      userEmail: entry.email,
+      platformFee: money.platformFee,        // organizer-paid
+      processingFee: money.processingFee,    // buyer-paid
+      feePaidBy: 'organizer',                // legacy marker for new tickets
+      amountPaid: actualAmountPaid,
+
+      // Payment traceability
+      paymentIntentId: paymentReference.trim(),
+      paymentGateway,
+
+      userEmail: String(entry.email).toLowerCase().trim(),
       userPhone: entry.phone,
+      purchasedAt,
       status: 'active',
       validated: false,
     });
     await ticket.save();
 
+    // ── Reserve capacity ──
     typeData.sold += 1;
     event.markModified('ticketTypes');
-    await event.save();
+    try {
+      await event.save();
+    } catch (err) {
+      // Roll back the ticket so the admin can retry cleanly.
+      await Ticket.deleteOne({ _id: ticket._id })
+        .catch((e) => logger.error('convertWaitlist rollback failed', { err: e.message }));
+      throw err;
+    }
 
+    // ── Clean up the waitlist entry (last step, so partial failures retry) ──
     await Waitlist.findByIdAndDelete(entryId);
 
     sendEmail(entry.email, `Your ticket for ${event.title}`, `<p>Ticket ID: ${ticketId}</p>`)
@@ -405,7 +510,16 @@ class AdminService {
     sendSMS(entry.phone, `Glycr: Your ${matchedKey} ticket is ready. ID: ${ticketId}`)
       .catch((e) => logger.error('waitlist ticket SMS failed', { err: e.message }));
 
-    return { success: true, ticket: { id: ticket.id, ticketType: matchedKey } };
+    return {
+      success: true,
+      ticket: {
+        id: ticket.id,
+        ticketType: matchedKey,
+        amountPaid: actualAmountPaid,
+        paymentReference: paymentReference.trim(),
+        paymentGateway,
+      },
+    };
   }
 
   async deleteWaitlistEntry(entryId) {

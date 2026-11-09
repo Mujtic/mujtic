@@ -43,8 +43,16 @@ class GlycrApp {
     const isDev = ['', 'localhost', '127.0.0.1'].includes(location.hostname);
     this.apiBase   = (cfg.apiBase || (isDev ? 'http://localhost:5040/api' : '/api')).replace(/\/$/, '');
     this.apiOrigin = this.apiBase.replace(/\/api$/, '');
-    this.platformFeePercent = null;   // was 3; the API is the only source
-    this.allowFeeChoice = true;       // admin switch: may organizers choose who pays the fee?
+
+    // ── Fee settings (two independent tracks) ──────────────────
+    //   organizer-side → platformFee / platformFeeFloor     (deducted from payouts)
+    //   buyer-side     → processingFee / processingFeeFloor (added at checkout)
+    // The old "allowFeeChoice" switch is gone — the payer is no longer a choice.
+    this.platformFeePercent   = null;
+    this.platformFeeFloor     = 0;
+    this.processingFeePercent = 0;
+    this.processingFeeFloor   = 0;
+
     this.orgSummary = null;           // server-side revenue aggregate
     this._loadAllPromise = null;
     this._orgLoadedAt = 0;
@@ -111,13 +119,12 @@ class GlycrApp {
       { cat: 'payments', q: 'Is my payment information secure?', a: 'Yes. All payments are encrypted using industry-standard TLS. We never store your card details on our servers.' },
       { cat: 'organizers', q: 'How do I create an event?', a: 'Sign up as an organiser, then use the Dashboard → New Event button. Fill in event details, set ticket types, and publish.' },
       { cat: 'organizers', q: 'When do I receive my payout?', a: 'Payouts are processed within 2–5 business days after your event. You can request a payout from your Dashboard or Payouts page.' },
-      { cat: 'organizers', q: 'What is the platform fee?', a: 'Glycr charges a percentage of each order, and may apply a minimum fee per order. For each event, the fee is either deducted from your sales or added to the ticket price as a service fee at checkout, and buyers always see it before they pay. The current rate is shown on your Dashboard. There are no setup or listing fees.' },
-      { cat: 'organizers', q: 'Who pays the platform fee on my event?', a: 'When you create an event you can choose whether you pay the fee (deducted from your sales) or the buyer pays it (added at checkout), unless the platform default is enforced. The choice is locked once the first ticket is sold, so every buyer sees the same price.' },
+      { cat: 'organizers', q: 'What fees does Glycr charge?', a: 'Two fees. A platform fee — a percentage of each ticket\'s face value, with a possible minimum per order — is deducted from your payout. A processing fee — a percentage of the ticket value, with a possible minimum per order — is added to the ticket price at checkout and is always paid by the buyer; it is never deducted from you. Both rates are shown on your Dashboard. There are no setup or listing fees.' },
       { cat: 'organizers', q: 'Can I schedule when my event goes live?', a: 'Yes! In the event creation form, use the "Schedule Publication" field to set a future date and time for your event to go live.' },
       { cat: 'refunds', q: 'How do I request a refund?', a: 'Go to Profile → Purchase History and click "Request Refund" next to the ticket. Fill in the reason and submit. The organiser will review within 48 hours.' },
       { cat: 'refunds', q: 'How long do refunds take?', a: 'Once approved by the organiser, refunds are processed within 5–10 business days depending on your payment method.' },
-      { cat: 'refunds', q: 'What if the event is cancelled?', a: 'If an organiser cancels an event, all ticket holders are automatically refunded in full, including any service fee you paid at checkout. Glycr will process these within 5–7 business days.' },
-      { cat: 'refunds', q: 'Is the service fee refundable?', a: 'If the organiser cancels the event, yes: you get back everything you paid. If you request a refund yourself, the ticket price is refunded but a service fee added at checkout is not.' },
+      { cat: 'refunds', q: 'What if the event is cancelled?', a: 'If an organiser cancels an event, all ticket holders are automatically refunded in full, including the processing fee you paid at checkout. Glycr will process these within 5–7 business days.' },
+      { cat: 'refunds', q: 'Is the processing fee refundable?', a: 'Yes. Refunds include both the ticket price and the processing fee added at checkout — whether the event was cancelled by the organiser or your own refund request was approved. You receive the full amount you paid.' },
       { cat: 'account', q: 'How do I reset my password?', a: 'Click "Forgot Password?" on the Sign In page, enter your email, and follow the link sent to your inbox.' },
       { cat: 'account', q: 'Can I have both an attendee and organiser account?', a: 'Yes! You can enable the organiser role from your account settings or by checking "I\'m an event organiser" during registration.' },
       { cat: 'account', q: 'How do I update my profile information?', a: 'Go to Profile and click "Edit Profile" to update your name, email, and phone number.' },
@@ -159,8 +166,6 @@ class GlycrApp {
   showInfo(m)    { this.showToast(m, 'info'); }
 
   // ─── Global confirm dialog ────────────────────────────────
-  // const ok = await this.confirmDialog({ title, message, confirmText, cancelText, tone: 'danger'|'primary' });
-  // With `input: { label, placeholder }` it resolves the typed text ('' allowed) on confirm, or null on cancel.
   confirmDialog({ title = 'Are you sure?', message = '', confirmText = 'Confirm', cancelText = 'Cancel', tone = 'danger', input = null } = {}) {
     const $ = id => document.getElementById(id);
     if (this._confirmResolve) this._settleConfirm(false);
@@ -181,7 +186,7 @@ class GlycrApp {
     }
     this._confirmPrevFocus = document.activeElement;
     $('confirm-dialog').classList.add('show');
-    (input ? $('confirm-input') : $('confirm-cancel-btn')).focus();   // destructive default = Cancel
+    (input ? $('confirm-input') : $('confirm-cancel-btn')).focus();
     return new Promise(resolve => { this._confirmResolve = resolve; });
   }
 
@@ -210,7 +215,7 @@ class GlycrApp {
       btn.setAttribute('aria-label', 'Show password');
       btn.setAttribute('aria-pressed', 'false');
       btn.innerHTML = '<i class="fas fa-eye"></i>';
-      btn.addEventListener('mousedown', e => e.preventDefault());   // keep focus in the input
+      btn.addEventListener('mousedown', e => e.preventDefault());
       btn.addEventListener('click', () => {
         const show = inp.type === 'password';
         inp.type = show ? 'text' : 'password';
@@ -252,44 +257,19 @@ class GlycrApp {
   validateEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
   validatePhone(p) { return /^\+233\d{9}$/.test(p); }
 
-  // ═══════════════════════════════════════════════════════════
-  //  FIX: Payout method normalizer
-  //  Accepts every way a client might send the method and maps
-  //  to canonical snake_case values the backend validates:
-  //    bank | mobile_money | paypal | stripe
-  // ═══════════════════════════════════════════════════════════
+  // ─── Payout method normalizer ──
   _normalizePayoutMethod(m) {
     if (!m || typeof m !== 'string') return '';
     const s = m.trim().toLowerCase();
     const aliases = {
-      // bank
-      'bank':             'bank',
-      'bank transfer':    'bank',
-      'bank_transfer':    'bank',
-      'bank account':     'bank',
-      'bank_account':     'bank',
-      // mobile money
-      'mobile_money':     'mobile_money',
-      'mobile money':     'mobile_money',
-      'mobilemoney':      'mobile_money',
-      'momo':             'mobile_money',   // legacy index.html value
-      'mo mo':            'mobile_money',
-      'mtn':              'mobile_money',
-      'mtn momo':         'mobile_money',
-      'mtn mobile money': 'mobile_money',
-      'vodafone cash':    'mobile_money',
-      'telecel cash':     'mobile_money',
+      'bank': 'bank', 'bank transfer': 'bank', 'bank_transfer': 'bank', 'bank account': 'bank', 'bank_account': 'bank',
+      'mobile_money': 'mobile_money', 'mobile money': 'mobile_money', 'mobilemoney': 'mobile_money',
+      'momo': 'mobile_money', 'mo mo': 'mobile_money', 'mtn': 'mobile_money', 'mtn momo': 'mobile_money',
+      'mtn mobile money': 'mobile_money', 'vodafone cash': 'mobile_money', 'telecel cash': 'mobile_money',
       'airteltigo money': 'mobile_money',
-      // paypal
-      'paypal':           'paypal',
-      'pay pal':          'paypal',
-      // stripe / card
-      'stripe':           'stripe',
-      'card':             'stripe',
-      'credit card':      'stripe',
-      'debit card':       'stripe',
-      'credit_card':      'stripe',
-      'debit_card':       'stripe',
+      'paypal': 'paypal', 'pay pal': 'paypal',
+      'stripe': 'stripe', 'card': 'stripe', 'credit card': 'stripe', 'debit card': 'stripe',
+      'credit_card': 'stripe', 'debit_card': 'stripe',
     };
     return aliases[s] || aliases[s.replace(/[\s_-]+/g, '')] || s;
   }
@@ -387,7 +367,7 @@ class GlycrApp {
   }
 
   async fetchApi(endpoint, options = {}) {
-    const { successMsg, ...fetchOpts } = options;   // successMsg: string = override, false = silence
+    const { successMsg, ...fetchOpts } = options;
     const token = localStorage.getItem('token');
     const headers = { ...fetchOpts.headers };
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -408,7 +388,7 @@ class GlycrApp {
     return data;
   }
 
-  // ─── MASTER DATA LOADER (Admin Panel Pattern) ─────────────
+  // ─── MASTER DATA LOADER ─────────────────────────────────
   async loadAllData() {
     if (this._loadAllPromise) return this._loadAllPromise;
     this._loadAllPromise = (async () => {
@@ -489,7 +469,7 @@ class GlycrApp {
     this.renderFAQs();
     document.addEventListener('keydown', e => {
       if (e.key !== 'Escape') return;
-      if (this._confirmResolve) return this._settleConfirm(false);   // close only the confirm dialog
+      if (this._confirmResolve) return this._settleConfirm(false);
       this.closeAllModals();
     });
     this.setupInfiniteScroll();
@@ -501,7 +481,7 @@ class GlycrApp {
   setupInfiniteScroll() {
     window.addEventListener('scroll', () => {
       const home = document.getElementById('home-section');
-      if (!home || home.style.display === 'none') return;   // not on the events page
+      if (!home || home.style.display === 'none') return;
       if (this.isLoadingEvents || !this.hasMoreEvents) return;
       if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
         this.renderEvents(false);
@@ -630,20 +610,17 @@ class GlycrApp {
     const dotsEl   = document.getElementById('carousel-dots');
     if (!slidesEl || !dotsEl) return;
 
-    // stop any previous autoplay so rebuilding never stacks timers
     if (this._carouselTimer) { clearInterval(this._carouselTimer); this._carouselTimer = null; }
 
     let featured = [];
     const pick = r => (Array.isArray(r) ? r : (r?.events || r?.data || [])).filter(ev => !ev.isCancelled);
 
-    // 1) curated list from admins/moderators
     try {
       featured = pick(await this.fetchApi('/events/featured'));
     } catch (err) {
       console.warn('Carousel: featured endpoint failed, using upcoming events instead', err);
     }
 
-    // 2) fallback: next upcoming events, so the hero is never empty
     if (!featured.length) {
       try {
         featured = pick(await this.fetchApi('/events?limit=4&upcoming=true'));
@@ -691,7 +668,6 @@ class GlycrApp {
       slide.addEventListener('keydown', e => { if (e.key === 'Enter') slide.click(); });
     });
 
-    // autoplay only with several slides, and not for people who asked for reduced motion
     const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (featured.length > 1 && !reduce) {
       this._carouselTimer = setInterval(() => go((cur + 1) % featured.length), 4500);
@@ -720,15 +696,21 @@ class GlycrApp {
     } catch { this.logout(true); }
   }
 
+  // ─── Load fee settings (both tracks) ─────────────────────────
   async fetchPlatformFee() {
     try {
       const s = await this.fetchApi('/settings');
       const fee = Number(s.platformFee);
       if (!Number.isFinite(fee)) throw new Error('Invalid platform fee');
-      this.platformFeePercent = fee;
-      this.allowFeeChoice = s.allowOrganizerFeeChoice !== false;   // missing = allowed
+      this.platformFeePercent   = fee;
+      this.platformFeeFloor     = Number(s.platformFeeFloor)     || 0;
+      this.processingFeePercent = Number(s.processingFee)        || 0;
+      this.processingFeeFloor   = Number(s.processingFeeFloor)   || 0;
     } catch (err) {
-      this.platformFeePercent = null;
+      this.platformFeePercent   = null;
+      this.platformFeeFloor     = 0;
+      this.processingFeePercent = 0;
+      this.processingFeeFloor   = 0;
       console.error('Platform fee unavailable:', err);
       if (this.currentUser?.isOrganizer) this.showToast('Could not load the platform fee. Fee figures are hidden until it loads.', 'warning');
     }
@@ -743,7 +725,6 @@ class GlycrApp {
 
     let valid = true;
 
-    // Login accepts an email OR a username, so only check the email format when registering
     if (!identifier) {
       this.setFieldError('email', 'email-err', isLogin ? 'Email or username is required' : 'Email is required');
       valid = false;
@@ -795,7 +776,6 @@ class GlycrApp {
             acceptedTerms: true,
           }),
         });
-        // register returns the user only (no token), so sign in to get one
         const result = await this.fetchApi('/auth/login', {
           method: 'POST',
           body: JSON.stringify({ email: identifier, password }),
@@ -824,7 +804,6 @@ class GlycrApp {
   }
 
   async _onAuthSuccess(result, isNewUser = false) {
-    // Never store a junk token if the response has the wrong shape
     if (!result?.token || !result?.user) {
       throw new Error('Sign-in failed. Please try again.');
     }
@@ -988,7 +967,6 @@ class GlycrApp {
       if (el) el.textContent = v;
     };
 
-    // null means the summary endpoint failed, so show a dash instead of a wrong number
     const money = v => v == null
       ? '—'
       : `${sym}${Number(v).toLocaleString('en-GB', { maximumFractionDigits: 2 })}`;
@@ -1063,15 +1041,12 @@ class GlycrApp {
     }
 
     container.innerHTML = myEvents.map(e => this.renderEventAdminCard(e)).join('');
-
-
   }
 
   renderEventAdminCard(event) {
     const tt = this.parseTicketTypes(event.ticketTypes);
     const esym = this.getCurrencySymbol(event.currency);
 
-    // revenue comes from the server summary; '—' if it failed to load
     const pe = this.orgSummary?.perEvent?.[event._id];
     const eRevText = pe ? `${esym}${pe.revenue.toFixed(0)}` : '—';
 
@@ -1176,7 +1151,6 @@ class GlycrApp {
     }
 
     container.innerHTML = tickets.map(t => {
-      // the API may send eventId as a plain id or as a populated object
       const evId  = (t.eventId && typeof t.eventId === 'object') ? (t.eventId._id || t.eventId.id) : t.eventId;
       const ev    = this.allEvents.find(e => e._id === evId);
       const sym   = this.getCurrencySymbol((ev && ev.currency) || 'GHC');
@@ -1184,7 +1158,6 @@ class GlycrApp {
       const evDate = ev ? new Date(ev.date) : null;
       const isPast = evDate && evDate <= now;
 
-      // a ticket is "voided" once its event is cancelled or its money is being/was returned
       const eventCancelled = !!(ev && ev.isCancelled);
       const voided = eventCancelled || t.refunded || ['cancelled', 'refund_pending', 'refunded'].includes(t.status);
       const used   = t.status === 'used' || !!t.validated;
@@ -1241,7 +1214,7 @@ class GlycrApp {
       container.innerHTML = '<p style="color:var(--muted); font-size:0.82rem;">No reminders set. When you purchase a ticket with reminders enabled, they\'ll appear here.</p>';
       return;
     }
-    container.innerHTML = reminders.map(r => // _loadRemindersTab — row template
+    container.innerHTML = reminders.map(r =>
       `<div class="reminder-item">
   <div class="reminder-item-icon"><i class="fas fa-bell"></i></div>
   <div class="reminder-item-body">
@@ -1422,7 +1395,6 @@ class GlycrApp {
       </div>
     </div>`;
   }
-
 
   // ─── Ticket Availability System ───────────────────────────
   getTicketAvailability(remaining, total) {
@@ -1639,7 +1611,7 @@ class GlycrApp {
       } else if (discRow) { discRow.style.display = 'none'; }
       document.getElementById('price-total').textContent = `${sym}${total.toFixed(2)}`;
     }
-    this._scheduleQuote();   // the server's all-in price (adds the service fee when the buyer pays it)
+    this._scheduleQuote();
     return total;
   }
 
@@ -1663,7 +1635,7 @@ class GlycrApp {
           promoCode: (this.appliedPromo && this.appliedPromo.code) || null,
         }),
       });
-      if (seq !== this._quoteSeq) return;   // a newer quote is already on its way
+      if (seq !== this._quoteSeq) return;
       this._renderQuote(q);
     } catch {
       // keep the local estimate; the purchase re-checks everything on the server
@@ -1684,11 +1656,16 @@ class GlycrApp {
       } else discRow.style.display = 'none';
     }
 
+    // Buyer-side fee only. The quote returns `processingFee` (canonical) with
+    // `serviceFee` as a back-compat alias from older API builds.
     const feeRow = document.getElementById('fee-row');
+    const feeAmt = q.processingFee != null
+      ? Number(q.processingFee)
+      : (Number(q.serviceFee) || 0);
     if (feeRow) {
-      const show = q.serviceFee > 0;
+      const show = feeAmt > 0;
       feeRow.style.display = show ? 'flex' : 'none';
-      if (show) set('price-fee', `${sym}${q.serviceFee.toFixed(2)}`);
+      if (show) set('price-fee', `${sym}${feeAmt.toFixed(2)}`);
     }
     set('price-total', `${sym}${q.total.toFixed(2)}`);
   }
@@ -1841,7 +1818,6 @@ class GlycrApp {
   async viewTicket(ticketId, eventId, type) {
     try {
       const ev = this.allEvents.find(e => e._id === eventId) || await this.fetchApi(`/events/${eventId}`);
-      // so the modal's "Download PDF" and calendar buttons work for this ticket
       this.lastPurchasedTickets = [{ id: ticketId, ticketType: type }];
       this.lastPurchasedEvent = ev;
       this._showTicketModal({ id: ticketId }, ev);
@@ -1992,128 +1968,10 @@ class GlycrApp {
 
   }
 
-  // ─── Ticket PDF ───────────────────────────────────────────
-  async downloadTicketPDF() {
-    if (!this.lastPurchasedTickets || !this.lastPurchasedTickets.length) { this.showToast('Ticket data not available.'); return; }
-    if (!this.lastPurchasedEvent) { this.showToast('Event data not available.'); return; }
-    const ticket     = this.lastPurchasedTickets[0];
-    const normTicket = { id: ticket.id || ticket._id || ticket.ticketId || 'TICKET', ticketType: ticket.ticketType || ticket.type || (this.selectedTicket && this.selectedTicket.type) || 'ticket' };
-    await this._generateTicketPDF(normTicket, this.lastPurchasedEvent);
-  }
 
-  async downloadTicketPDFById(ticketId, eventId, ticketType) {
-    try {
-      const ev = this.allEvents.find(e => e._id === eventId) || await this.fetchApi(`/events/${eventId}`);
-      await this._generateTicketPDF({ id: ticketId, ticketType }, ev);
-    }
-    catch (err) { this.showError('Could not load ticket data.'); }
-  }
 
-  async _generateTicketPDF(ticket, event) {
-    if (!window.jspdf) { this.showToast('PDF library not loaded. Please try again.'); return; }
-    const ticketId   = ticket.id || ticket._id || ticket.ticketId || 'TICKET';
-    const ticketType = (ticket.ticketType || ticket.type || 'ticket').toUpperCase();
-    const { jsPDF }  = window.jspdf;
-    const doc        = new jsPDF({ unit: 'mm', format: 'a5' });
 
-    const BANNER_H    = 52;
-    let bannerLoaded  = false;
 
-    if (event.image) {
-      try {
-        const imgUrl  = this.getFullImageUrl(event.image);
-        const imgData = await new Promise((resolve, reject) => {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => {
-            const canvas  = document.createElement('canvas');
-            canvas.width  = img.naturalWidth  || 600;
-            canvas.height = img.naturalHeight || 300;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = 'rgba(13,17,23,0.55)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL('image/jpeg', 0.85));
-          };
-          img.onerror = reject;
-          img.src = imgUrl;
-        });
-        doc.addImage(imgData, 'JPEG', 0, 0, 148, BANNER_H);
-        bannerLoaded = true;
-      } catch {}
-    }
-    if (!bannerLoaded) {
-      doc.setFillColor(13, 32, 48);
-      doc.rect(0, 0, 148, BANNER_H, 'F');
-    }
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14); doc.setTextColor(234, 242, 248);
-    const titleLines = doc.splitTextToSize((event.title || 'Event').substring(0, 60), 120);
-    doc.text(titleLines, 12, 35);
-
-    doc.setFillColor(45, 212, 191);
-    doc.roundedRect(12, BANNER_H - 12, 30, 8, 1, 1, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.5); doc.setTextColor(13, 17, 23);
-    doc.text(ticketType, 27, BANNER_H - 7, { align: 'center' });
-
-    doc.setFillColor(19, 26, 35);
-    doc.rect(0, BANNER_H, 148, 210 - BANNER_H, 'F');
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    let y = BANNER_H + 11;
-    const row = (label, value) => {
-      doc.setTextColor(74, 98, 120); doc.text(label, 12, y);
-      doc.setTextColor(200, 215, 225); doc.text(String(value), 45, y);
-      y += 8;
-    };
-    const dateStr = new Date(event.date).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-    row('Date',  dateStr);
-    row('Venue', `${event.venue || ''}, ${event.location || 'Ghana'}`);
-    row('Type',  ticketType);
-
-    doc.setDrawColor(36, 51, 71); doc.setLineWidth(0.4);
-    doc.setLineDashPattern([2, 2], 0);
-    doc.line(12, y + 2, 136, y + 2);
-    doc.setLineDashPattern([], 0);
-    y += 10;
-
-    const qrSize = 52;
-    const qrLeft = (148 - qrSize) / 2;
-    doc.setFillColor(255, 255, 255);
-    doc.rect(qrLeft - 3, y - 3, qrSize + 6, qrSize + 6, 'F');
-    const qrMatrix = this._getQRMatrix(ticketId);
-    if (qrMatrix) {
-      const modules  = qrMatrix.length;
-      const cellSize = qrSize / modules;
-      doc.setFillColor(0, 0, 0);
-      for (let r = 0; r < modules; r++) {
-        for (let c = 0; c < modules; c++) {
-          if (qrMatrix[r][c]) doc.rect(qrLeft + c * cellSize, y + r * cellSize, cellSize, cellSize, 'F');
-        }
-      }
-    } else {
-      const existingCanvas = document.querySelector('#ticket-canvas canvas');
-      if (existingCanvas) doc.addImage(existingCanvas.toDataURL('image/png'), 'PNG', qrLeft, y, qrSize, qrSize);
-    }
-    y += qrSize + 8;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7); doc.setTextColor(74, 98, 120);
-    doc.text(ticketId, 74, y,     { align: 'center' });
-    doc.text('Scan at the entrance', 74, y + 5, { align: 'center' });
-
-    doc.setDrawColor(36, 51, 71); doc.setLineWidth(0.3);
-    doc.line(12, 200, 136, 200);
-    doc.setFontSize(6); doc.setTextColor(74, 98, 120);
-    doc.text('This ticket is non-transferable. Present at the venue for entry.', 74, 204, { align: 'center' });
-    doc.text('glycr.com  ·  support@glycr.com', 74, 208, { align: 'center' });
-
-    doc.save(`glycr-ticket-${ticketId}.pdf`);
-    this.showSuccess('Ticket PDF downloaded');
-  }
 
   _getQRMatrix(text) {
     try {
@@ -2218,7 +2076,7 @@ class GlycrApp {
       confirmText: 'Reject refund', tone: 'danger',
       input: { label: 'Reason (optional)', placeholder: 'Tell the buyer why…' },
     });
-    if (reason === null) return;            // cancelled ('' means confirmed with no reason)
+    if (reason === null) return;
     try {
       await this.fetchApi(`/refunds/${refundId}/reject`, { method: 'PATCH', body: JSON.stringify({ reason }) });
       await this.loadOrganizerRefunds(); await this.loadAllData();
@@ -2326,7 +2184,6 @@ class GlycrApp {
 <td>${new Date(p.requestedAt).toLocaleDateString('en-GB')}</td><td>${p.completedAt ? new Date(p.completedAt).toLocaleDateString('en-GB') : '—'}</td></tr>`;
       }).join('');
     }
-    // IDs are unique now: payout-page-csv / payout-page-pdf
     const csvBtn = document.getElementById('payout-page-csv');
     const pdfBtn = document.getElementById('payout-page-pdf');
     if (csvBtn) csvBtn.onclick = () => this.exportPayoutsToCSV(payouts);
@@ -2346,7 +2203,6 @@ class GlycrApp {
     const sym = this.getCurrencySymbol(this.currentUser.currency || 'GHC');
     const safeSet = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
 
-    // ── Figures come from the server summary; null means it failed to load ──
     const s = this.orgSummary;
     const money = v => v == null ? '—' : `${sym}${Number(v).toFixed(2)}`;
     safeSet('report-total-events',  myEvents.length);
@@ -2365,7 +2221,6 @@ class GlycrApp {
       }).join('') || '<tr><td colspan="5" class="table-empty">No events yet</td></tr>';
     }
 
-    // ── Revenue trend chart (unchanged) ──
     let salesData = { labels: [], tickets: [], revenue: [] };
     try { salesData = await this.fetchApi('/analytics/sales-trend?days=7'); } catch {}
     const rCtx = document.getElementById('report-revenue-chart');
@@ -2374,7 +2229,6 @@ class GlycrApp {
       this.reportRevenueChart = new Chart(rCtx, { type: 'bar', data: { labels: salesData.labels, datasets: [{ label: 'Revenue (₵)', data: salesData.revenue, backgroundColor: 'rgba(45,212,191,0.3)', borderColor: '#2dd4bf', borderWidth: 1 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { color: '#4a6278', font: { size: 10 } }, grid: { color: '#192130' } }, x: { ticks: { color: '#4a6278', font: { size: 10 } }, grid: { color: '#192130' } } } } });
     }
 
-    // ── Tickets by type (from the server) ──
     const typeTotals = s?.byType || {};
     const tCtx = document.getElementById('report-ticket-chart');
     if (tCtx && Object.keys(typeTotals).length) {
@@ -2382,7 +2236,6 @@ class GlycrApp {
       this.reportTicketChart = new Chart(tCtx, { type: 'doughnut', data: { labels: Object.keys(typeTotals), datasets: [{ data: Object.values(typeTotals), backgroundColor: ['rgba(45,212,191,0.75)', 'rgba(110,231,183,0.75)', 'rgba(251,191,36,0.75)', 'rgba(255,107,107,0.75)', 'rgba(125,211,252,0.75)'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#7a96aa', font: { family: 'JetBrains Mono', size: 10 }, padding: 12 } } } } });
     }
 
-    // ── Export buttons ──
     const filterByDate = (arr, field) => {
       const sd = (document.getElementById('report-start-date') || {}).value;
       const ed = (document.getElementById('report-end-date') || {}).value;
@@ -2625,7 +2478,7 @@ class GlycrApp {
 
   async cancelEvent() {
     try {
-      await this.fetchApi(`/events/${this.currentEventId}/cancel`, { method: 'PATCH' });   // toast comes from SUCCESS_TOASTS
+      await this.fetchApi(`/events/${this.currentEventId}/cancel`, { method: 'PATCH' });
       this.closeAllModals();
       await this.loadAllData();
     } catch (err) { this.showError(err.message); }
@@ -2671,33 +2524,17 @@ class GlycrApp {
     this.openModal('payout-modal');
   }
 
-  // ═══════════════════════════════════════════════════════════
-  //  FIX: getNetAvailablePayout — subtract PENDING payouts too.
-  //  Previously it subtracted only completed payouts, so the
-  //  UI showed more available than the backend would accept,
-  //  resulting in a 400 error after the user filled out the form.
-  // ═══════════════════════════════════════════════════════════
   async getNetAvailablePayout() {
     this.orgSummary = await this.fetchApi('/analytics/organizer-summary');
     return Math.max(0, Number(this.orgSummary.availableForPayout) || 0);
   }
 
-  // ═══════════════════════════════════════════════════════════
-  //  FIX: togglePayoutDetails — use _normalizePayoutMethod
-  //  so the value "momo", "Mobile Money", "MTN MoMo", etc. all
-  //  correctly show the Mobile Money details field.
-  // ═══════════════════════════════════════════════════════════
   togglePayoutDetails(method) {
     const canonical = this._normalizePayoutMethod(method);
     document.getElementById('bank-details').style.display = canonical === 'bank'         ? 'grid'  : 'none';
     document.getElementById('momo-details').style.display = canonical === 'mobile_money' ? 'block' : 'none';
   }
 
-  // ═══════════════════════════════════════════════════════════
-  //  FIX: requestPayout — normalize method before sending.
-  //  Backend expects: bank | mobile_money | paypal | stripe
-  //  Old HTML sent:   momo  (which backend rejected with 400)
-  // ═══════════════════════════════════════════════════════════
   async requestPayout() {
     const amount    = parseFloat(document.getElementById('payout-amount').value);
     const rawMethod = document.getElementById('payout-method').value;
@@ -2723,7 +2560,6 @@ class GlycrApp {
       momoDetails = { phone: ph };
     }
 
-    // `method` is canonical (mobile_money / bank / paypal / stripe)
     const body = { amount, method, email, notes };
     if (bankDetails) body.bankDetails = bankDetails;
     if (momoDetails) body.momoDetails = momoDetails;
@@ -2823,7 +2659,7 @@ class GlycrApp {
       this.saveToStorage('glycr_favorites', this.favorites);
       this.showSuccess(action === 'add' ? 'Saved to favourites' : 'Removed from favourites');
     } catch (err) {
-      if (action === 'add') list.splice(list.indexOf(eventId), 1); else list.push(eventId);   // roll back
+      if (action === 'add') list.splice(list.indexOf(eventId), 1); else list.push(eventId);
       this._paintFavourite(eventId);
       this.showError(err.message || 'Could not update favourites.');
       return;
@@ -2863,7 +2699,6 @@ class GlycrApp {
     this.showSuccess(`${filename} downloaded`);
   }
 
-  // Quote a CSV cell: double any quotes, and stop spreadsheet formulas (=, +, -, @) from running
   _csvCell(v) {
     let s = String(v ?? '');
     if (/^[=+\-@]/.test(s)) s = `'${s}`;
@@ -2871,8 +2706,6 @@ class GlycrApp {
   }
 
   exportEventsToCSV(events) {
-    // Figures come from the server, which uses the fee recorded on each ticket
-    // (so discounts, minimum fees and buyer-paid fees are all right).
     const per = this.orgSummary?.perEvent;
     if (!per) return this.showWarning('Revenue figures are not loaded yet. Try again in a moment.');
     let csv = 'Title,Date,Venue,Location,Category,Status,Tickets Sold,Gross Revenue,Platform Fee (deducted),Net Revenue\n';
@@ -2981,7 +2814,7 @@ class GlycrApp {
     return floor > 0 ? `${this.platformFeePercent}% (min ₵${floor})` : `${this.platformFeePercent}%`;
   }
 
-  async loadUserPrefs() {          // favourites + reviews follow the account (see item 7)
+  async loadUserPrefs() {
     const uid = this.currentUser?.id; if (!uid) return;
     const [favs, revs] = await Promise.allSettled([this.fetchApi('/users/favorites'), this.fetchApi('/reviews/my')]);
     if (favs.status === 'fulfilled') {
@@ -2999,7 +2832,6 @@ class GlycrApp {
     }
   }
 
-// reload only what changed, then repaint the current screen once
   async _reload(...loaders) {
     const res = await Promise.allSettled(loaders.map(fn => fn.call(this)));
     const failed = res.find(r => r.status === 'rejected');
@@ -3037,7 +2869,7 @@ class GlycrApp {
       .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     document.getElementById('settings-status').style.display = 'none';
     this.clearFieldErrors('deactivate-password-err');
-    const pref = k => localStorage.getItem(k) !== 'false';     // default on
+    const pref = k => localStorage.getItem(k) !== 'false';
     document.getElementById('notify-email').checked = pref('notify_email');
     document.getElementById('notify-sms').checked   = pref('notify_sms');
     document.getElementById('settings-account-email').textContent = this.currentUser?.email || '—';
@@ -3075,7 +2907,6 @@ class GlycrApp {
 
   showSettingsError(msg) { const s = document.getElementById('settings-status'); s.style.display = 'block'; s.className = 'status-msg error'; s.textContent = msg; }
 
-  // Stored in the browser only for now; move to the User model when the backend supports it
   saveNotificationPrefs() {
     localStorage.setItem('notify_email', document.getElementById('notify-email').checked);
     localStorage.setItem('notify_sms',   document.getElementById('notify-sms').checked);
@@ -3127,7 +2958,6 @@ class GlycrApp {
     });
   }
 
-  // Open Terms/Privacy from the sign-up form, then return to it (typed values stay in the DOM)
   openLegal(id) { this._reopenAfter = 'auth-modal'; this.openModal(id); }
 
   _setupFocusTrap(modal) {
@@ -3203,7 +3033,6 @@ class GlycrApp {
     const logoHome = document.getElementById('logo-home');
     if (logoHome) logoHome.addEventListener('click', e => { e.preventDefault(); this.showSection('home'); });
 
-    // Global confirm dialog
     this.on('confirm-ok-btn',     'click', () => this._settleConfirm(true));
     this.on('confirm-cancel-btn', 'click', () => this._settleConfirm(false));
     this.on('confirm-backdrop',   'click', () => this._settleConfirm(false));
@@ -3326,8 +3155,6 @@ class GlycrApp {
 
 // ─────────────────────────────────────────────────────────────
 //  VALIDATION & STAFF EXTENSION
-//  Patched onto GlycrApp.prototype so the existing instance
-//  picks up all new methods without changing the class above.
 // ─────────────────────────────────────────────────────────────
 
 class GlycrAccessControl {
@@ -3741,7 +3568,7 @@ Object.assign(GlycrApp.prototype, {
     });
     if (!ok) return;
     try {
-      await this.fetchApi(`/staff/${staffId}`, { method: 'DELETE' });   // toast comes from SUCCESS_TOASTS
+      await this.fetchApi(`/staff/${staffId}`, { method: 'DELETE' });
       await this._renderStaffList();
     } catch (err) {
       this.showError(err.message || 'Failed to remove staff member.');
@@ -3820,7 +3647,7 @@ Object.assign(GlycrApp.prototype, {
   },
 
   // ═══════════════════════════════════════════════════════════
-  //  WIRING — called from init()
+  //  WIRING
   // ═══════════════════════════════════════════════════════════
 
   _bindValidationFeatures() {
@@ -3886,11 +3713,11 @@ Object.assign(GlycrApp.prototype, {
     const onChange = e => {
       let saved = null;
       try { saved = localStorage.getItem('glycr_theme'); } catch {}
-      if (saved === 'dark' || saved === 'light') return; // user's choice wins
-      this.applyTheme(e.matches ? 'dark' : 'light');     // not persisted
+      if (saved === 'dark' || saved === 'light') return;
+      this.applyTheme(e.matches ? 'dark' : 'light');
     };
     if (mq.addEventListener) mq.addEventListener('change', onChange);
-    else if (mq.addListener) mq.addListener(onChange);   // older Safari
+    else if (mq.addListener) mq.addListener(onChange);
   },
 
   applyTheme(theme, persist = false) {
@@ -3919,7 +3746,6 @@ Object.assign(GlycrApp.prototype, {
       : { tick: '#6b7f93', grid: '#e5ebf2', legend: '#4a6075', tipBg: '#ffffff', tipTitle: '#0b1624', tipBody: '#4a6075', tipBorder: '#dbe3ec' };
   },
 
-  // Re-colours existing Chart.js instances so they match the active theme
   _restyleCharts() {
     const c = this._chartColors();
     [this.dashChart, this.reportRevenueChart, this.reportTicketChart].forEach(ch => {

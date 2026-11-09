@@ -256,11 +256,32 @@ exports.notifyWaitlistEntry = async (req, res, next) => {
 exports.convertWaitlistToTicket = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { ticketType } = req.body;
-    const result = await adminService.convertWaitlistToTicket(id, ticketType);
-    logService.audit(req.user.email, 'convert_waitlist', String(id), {
-      type: 'event', adminId: req.user.id, ticketType, ...ctx(req),
+    const {
+      ticketType,
+      paymentReference,
+      paymentGateway,
+      amountPaid,     // optional — defaults to calculated buyer total
+      paidAt,         // optional ISO date — defaults to now
+    } = req.body || {};
+
+    const result = await adminService.convertWaitlistToTicket(id, ticketType, {
+      paymentReference,
+      paymentGateway,
+      amountPaid,
+      paidAt,
     });
+
+    logService.audit(req.user.email, 'convert_waitlist', String(id), {
+      type: 'event', adminId: req.user.id, ticketType,
+      paymentGateway,
+      // Reference is the gateway's transaction ID / MoMo receipt — not PII,
+      // but cap it so a garbage string can't blow up the audit doc.
+      paymentReference: String(paymentReference || '').slice(0, 100),
+      amountPaid: result?.ticket?.amountPaid,
+      alreadyConverted: !!result?.alreadyConverted,
+      ...ctx(req),
+    });
+
     res.json(result);
   } catch (err) {
     next(err);
@@ -289,7 +310,6 @@ exports.getAllCoupons = async (req, res, next) => {
   }
 };
 
-// adminController.js
 exports.completePayout = async (req, res, next) => {
   try {
     const payout = await adminService.completePayout(req.user.id, req.params.id, req.body?.paymentReference);
