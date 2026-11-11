@@ -53,6 +53,7 @@ class GlycrApp {
     this.platformFeeFloor     = 0;
     this.processingFeePercent = 0;
     this.processingFeeFloor   = 0;
+    this.refundDeadlineDays   = 0;
 
     this.orgSummary = null;           // server-side revenue aggregate
     this._loadAllPromise = null;
@@ -710,11 +711,13 @@ class GlycrApp {
       this.platformFeeFloor     = Number(s.platformFeeFloor)     || 0;
       this.processingFeePercent = Number(s.processingFee)        || 0;
       this.processingFeeFloor   = Number(s.processingFeeFloor)   || 0;
+      this.refundDeadlineDays   = Number(s.refundDeadlineDays)   || 0;
     } catch (err) {
       this.platformFeePercent   = null;
       this.platformFeeFloor     = 0;
       this.processingFeePercent = 0;
       this.processingFeeFloor   = 0;
+      this.refundDeadlineDays   = 0;
       console.error('Platform fee unavailable:', err);
       if (this.currentUser?.isOrganizer) this.showToast('Could not load the platform fee. Fee figures are hidden until it loads.', 'warning');
     }
@@ -1303,6 +1306,16 @@ class GlycrApp {
       return { ok: false, reason: 'This ticket has already been used.' };
     if (evDate <= new Date())
       return { ok: false, reason: 'This event has ended, so a refund can no longer be requested.' };
+    const days = Number(this.refundDeadlineDays) || 0;
+    if (days > 0) {
+      const cutoff = new Date(evDate.getTime() - days * 86400000);
+      if (new Date() > cutoff) {
+        return {
+          ok: false,
+          reason: `Refunds close ${days} day${days !== 1 ? 's' : ''} before the event.`,
+        };
+      }
+    }
     if ((Number(t.price) || 0) < 1)
       return { ok: false, reason: `Tickets priced under ${this.getCurrencySymbol(ev.currency)}1 (including free tickets) can't be refunded.` };
     return { ok: true, reason: '' };

@@ -47,6 +47,7 @@ class RefundService {
     if (ticket.status === 'refund_pending') {
       throw new AppError('A refund request for this ticket is already pending', 409);
     }
+
     if (ticket.status === 'cancelled') {
       throw new AppError(
         'This ticket was cancelled together with its event and is being refunded automatically',
@@ -60,9 +61,24 @@ class RefundService {
       throw new AppError('Refund already requested', 409);
     }
 
+    // Free / under-₵1 tickets are not refundable.
+    if ((Number(ticket.price) || 0) < 1) {
+      throw new AppError(
+        "Tickets priced under ₵1 (including free tickets) can't be refunded.",
+        400
+      );
+    }
+
     const event = ticket.eventId;
     if (!event) {
       throw new AppError('Event for this ticket no longer exists', 404);
+    }
+
+    if (event.isCancelled) {                                   // ← new
+      throw new AppError(
+        'This event was cancelled and your ticket is being refunded automatically',
+        409
+      );
     }
 
     // Refund window check — reads the configurable deadline from Settings.
