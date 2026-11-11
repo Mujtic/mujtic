@@ -135,6 +135,10 @@ class CouponService {
   }
 
   async deleteCoupon(couponId, organizerId, isAdmin = false) {
+    if (typeof couponId !== 'string' || !/^[a-f\d]{24}$/i.test(couponId)) {
+      throw new AppError('Coupon not found', 404);
+    }
+
     const coupon = await Coupon.findById(couponId);
     if (!coupon) throw new AppError('Coupon not found', 404);
 
@@ -142,8 +146,9 @@ class CouponService {
       throw new AppError('You do not have permission to delete this coupon', 403);
     }
 
+    const info = { code: coupon.code, eventId: coupon.eventId };
     await coupon.deleteOne();
-    return true;
+    return info;
   }
 }
 

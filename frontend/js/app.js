@@ -21,6 +21,7 @@ const SUCCESS_TOASTS = [
   ['POST',   /^\/events\/[^/]+\/waitlists\/notify$/, 'Waitlist notified'],
   ['POST',   /^\/coupons\/validate$/,                'Promo code applied'],
   ['POST',   /^\/coupons$/,                          'Coupon created'],
+  ['DELETE', /^\/coupons\/[^/]+$/,                   'Coupon deleted'],
   ['POST',   /^\/tickets\/transfer$/,                'Ticket transferred'],
   ['POST',   /^\/reviews$/,                          'Review submitted'],
   ['POST',   /^\/refunds$/,                          'Refund request submitted'],
@@ -1169,7 +1170,7 @@ class GlycrApp {
 
       const canView     = !voided && !used;
       const canCalendar = !voided && !used && evDate && evDate > now;
-      const canRefund   = !voided && !used && evDate && evDate > now;
+      const canRefund   = !voided && !used && this._refundEligibility(t, ev).ok;
       const canTransfer = !voided && !used && evDate && evDate > now && !t.transferred;
       const canReview   = !voided && isPast && !t.reviewed;
 
@@ -1257,23 +1258,100 @@ class GlycrApp {
       </div>`).join('');
   }
 
+  // ─── Shared helpers (ids, dates, event lookup) ────────────
+  _idOf(v) { return v && typeof v === 'object' ? String(v._id || v.id || '') : (v == null ? '' : String(v)); }
+
+  _fmtDate(d, withTime = false) {
+    if (!d) return '—';
+    const x = new Date(d);
+    if (isNaN(x)) return '—';
+    return withTime
+      ? x.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : x.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  _asArray(r, ...keys) {
+    if (Array.isArray(r)) return r;
+    for (const k of keys) if (Array.isArray(r?.[k])) return r[k];
+    return [];
+  }
+
+  _findEvent(id) {
+    id = String(id || '');
+    if (!id) return null;
+    return this.orgEvents.find(e => String(e._id) === id)
+      || this.allEvents.find(e => String(e._id) === id)
+      || (this._eventCache || {})[id] || null;
+  }
+
+  // Fetch any events we don't already have (e.g. unpublished / not in the public list)
+  async _ensureEvents(ids) {
+    this._eventCache = this._eventCache || {};
+    const missing = [...new Set((ids || []).filter(Boolean).map(String))].filter(id => !this._findEvent(id));
+    await Promise.allSettled(missing.map(async id => {
+      try { this._eventCache[id] = await this.fetchApi(`/events/${encodeURIComponent(id)}`); } catch {}
+    }));
+  }
+
+  // Single source of truth for "can this ticket be refunded?"
+  _refundEligibility(t, ev) {
+    const evDate = ev?.date ? new Date(ev.date) : null;
+    if (!evDate || isNaN(evDate)) return { ok: false, reason: 'Event details are unavailable right now.' };
+    if (ev.isCancelled || t.refunded || ['cancelled', 'refund_pending', 'refunded'].includes(t.status))
+      return { ok: false, reason: 'This ticket is not eligible for a refund.' };
+    if (t.status === 'used' || t.validated)
+      return { ok: false, reason: 'This ticket has already been used.' };
+    if (evDate <= new Date())
+      return { ok: false, reason: 'This event has ended, so a refund can no longer be requested.' };
+    if ((Number(t.price) || 0) < 1)
+      return { ok: false, reason: `Tickets priced under ${this.getCurrencySymbol(ev.currency)}1 (including free tickets) can't be refunded.` };
+    return { ok: true, reason: '' };
+  }
+
+  // Normalises a refund record whatever shape the API returns it in
+  _resolveRefund(r) {
+    const tkObj    = (r.ticket && typeof r.ticket === 'object') ? r.ticket : ((r.ticketId && typeof r.ticketId === 'object') ? r.ticketId : null);
+    const ticketId = this._idOf(r.ticketId || r.ticket);
+    const myTicket = this.userTickets.find(t => String(t.id) === ticketId || String(t._id) === ticketId) || null;
+    const tk       = tkObj || myTicket;
+    const evRaw    = r.eventId || r.event || tk?.eventId;
+    const evObj    = (evRaw && typeof evRaw === 'object') ? evRaw : null;
+    const evId     = this._idOf(evRaw);
+    const ev       = this._findEvent(evId) || evObj;
+    const usr      = [r.user, r.userId, r.buyer, r.requestedBy].find(u => u && typeof u === 'object') || {};
+    const bad      = v => !v || v === 'undefined' || v === 'null';
+    const amount   = (r.amount != null && r.amount !== '') ? Number(r.amount) : (tk && tk.price != null ? Number(tk.price) : null);
+    return {
+      evId, ev,
+      eventTitle:  [r.eventTitle, ev?.title, tk?.eventTitle].find(v => !bad(v)) || 'Event',
+      eventDate:   r.eventDate || ev?.date || null,
+      userName:    r.userName  || r.buyerName  || usr.name  || tk?.userName  || tk?.buyerName  || '',
+      userEmail:   r.userEmail || r.buyerEmail || usr.email || tk?.userEmail || tk?.buyerEmail || '',
+      requestedAt: r.createdAt || r.requestedAt || r.created_at || r.date || null,
+      ticketType:  r.ticketType || tk?.ticketType || '',
+      amount,
+      sym: this.getCurrencySymbol(ev?.currency || 'GHC'),
+    };
+  }
+
   async loadMyRefunds() {
     const container = document.getElementById('my-refunds-list');
     if (!container) return;
     try {
-      const refunds = await this.fetchApi('/refunds/my');
+      const refunds = this._asArray(await this.fetchApi('/refunds/my'), 'refunds', 'data');
       if (!refunds.length) { container.innerHTML = '<p style="color:var(--muted); font-size:0.82rem; padding:1rem 0;">No refund requests yet.</p>'; return; }
+      await this._ensureEvents(refunds.map(r => this._resolveRefund(r)).filter(x => x.evId && (!x.eventDate || x.eventTitle === 'Event')).map(x => x.evId));
       container.innerHTML = refunds.map(r => {
-        const ev = this.allEvents.find(e => e._id === r.eventId);
-        const eventTitle = r.eventTitle && r.eventTitle !== 'undefined' ? r.eventTitle : (ev ? ev.title : 'Event');
+        const x = this._resolveRefund(r);
         return `<div class="refund-item">
-          <div class="refund-item-title">${esc(eventTitle)} — ${esc((r.ticketType ? r.ticketType.toUpperCase() : '') || '')}</div>
+          <div class="refund-item-title">${esc(x.eventTitle)}${x.ticketType ? ' — ' + esc(String(x.ticketType).toUpperCase()) : ''}</div>
           <div class="refund-item-meta">
             <span class="status-pill ${esc(r.status)}">${esc(r.status)}</span>
-            <span>${esc(r.reason)}</span>
-            ${r.amount ? `<span>₵${esc(r.amount)}</span>` : '<span>Full refund</span>'}
-            <span>${esc(new Date(r.createdAt).toLocaleDateString())}</span>
+            <span><i class="fas fa-calendar-alt"></i> Event: ${esc(this._fmtDate(x.eventDate))}</span>
+            <span><i class="fas fa-clock"></i> Requested: ${esc(this._fmtDate(x.requestedAt))}</span>
+            <span>${x.amount != null ? esc(x.sym) + esc(x.amount.toFixed(2)) : 'Full refund'}</span>
           </div>
+          ${r.reason ? `<div class="refund-item-meta" style="margin-top:0.3rem;">${esc(r.reason)}</div>` : ''}
         </div>`;
       }).join('');
     } catch (err) { container.innerHTML = `<p style="color:var(--coral); font-size:0.82rem; padding:1rem 0;">${esc(err.message || 'Could not load refund requests.')}</p>`; }
@@ -2082,11 +2160,22 @@ class GlycrApp {
 
   // ─── Refund Request ───────────────────────────────────────
   openRefundModal(ticketId, eventTitle, ticketType, price) {
+    const t   = this.userTickets.find(x => String(x.id) === String(ticketId) || String(x._id) === String(ticketId));
+    const ev  = this._findEvent(this._idOf(t?.eventId));
+    if (t) {
+      const el = this._refundEligibility(t, ev);
+      if (!el.ok) { this.showWarning(el.reason); return; }
+    } else if ((Number(price) || 0) < 1) {
+      this.showWarning("Tickets priced under 1 (including free tickets) can't be refunded."); return;
+    }
+    const sym = this.getCurrencySymbol(ev?.currency || 'GHC');
+    const amt = Number(t?.price ?? price) || 0;
     document.getElementById('refund-ticket-id').value = ticketId;
-    document.getElementById('refund-ticket-info').textContent = `${eventTitle} — ${ticketType.toUpperCase()} (₵${price})`;
+    document.getElementById('refund-ticket-info').textContent = `${eventTitle} — ${String(ticketType).toUpperCase()}`;
+    const line = document.getElementById('refund-amount-line');
+    if (line) line.innerHTML = `Refund amount: <strong style="color:var(--teal);">${esc(sym)}${amt.toFixed(2)}</strong> <span style="color:var(--muted);">(the full ticket price)</span>`;
     document.getElementById('refund-reason-select').value = '';
     document.getElementById('refund-reason-text').value = '';
-    document.getElementById('refund-amount').value = '';
     document.getElementById('refund-request-status').style.display = 'none';
     this.clearFieldErrors('refund-reason-err');
     this.openModal('refund-request-modal');
@@ -2097,14 +2186,19 @@ class GlycrApp {
     const ticketId = document.getElementById('refund-ticket-id').value;
     const reason   = document.getElementById('refund-reason-select').value;
     const details  = document.getElementById('refund-reason-text').value.trim();
-    const amount   = document.getElementById('refund-amount').value;
     this.clearFieldErrors('refund-reason-err');
+    const t = this.userTickets.find(x => String(x.id) === String(ticketId) || String(x._id) === String(ticketId));
+    if (t) {
+      const el = this._refundEligibility(t, this._findEvent(this._idOf(t.eventId)));
+      if (!el.ok) { this.showWarning(el.reason); return; }
+    }
     if (!reason) { this.setFieldError('refund-reason-select', 'refund-reason-err', 'Please select a reason'); return; }
     if (!details) { this.showToast('Please provide more details', 'warning'); return; }
     const s = document.getElementById('refund-request-status');
     s.style.display = 'block'; s.className = 'status-msg loading'; s.textContent = 'Submitting request…';
     try {
-      await this.fetchApi('/refunds', { method: 'POST', body: JSON.stringify({ ticketId, reason: `${reason}: ${details}`, amount: amount ? parseFloat(amount) : null }) });
+      // The amount is never user-supplied: the server refunds the ticket's full price.
+      await this.fetchApi('/refunds', { method: 'POST', body: JSON.stringify({ ticketId, reason: `${reason}: ${details}`, amount: null }) });
       s.className = 'status-msg success'; s.innerHTML = '<strong>✓ Refund request submitted!</strong> The organiser will review within 48 hours.';
       this.pushNotification({ type: 'refund', text: 'Your refund request was submitted successfully.' });
       await this.loadAllData();
@@ -2120,23 +2214,28 @@ class GlycrApp {
     const filter    = (document.getElementById('org-refund-filter') || {}).value || 'all';
     container.innerHTML = '<div class="loading-placeholder"><div class="spinner"></div></div>';
     try {
-      const all = await this.fetchApi('/refunds/organizer');
+      const all = this._asArray(await this.fetchApi('/refunds/organizer'), 'refunds', 'data');
       this.orgRefunds = all;
-      let refunds = filter !== 'all' ? all.filter(r => r.status === filter) : all;
+      const refunds = filter !== 'all' ? all.filter(r => r.status === filter) : all;
       if (!refunds.length) { container.innerHTML = '<div class="empty-state"><h3>No refund requests</h3><p>All refund requests for your events will appear here.</p></div>'; return; }
+      await this._ensureEvents(refunds.map(r => this._resolveRefund(r)).filter(x => x.evId && (!x.eventDate || x.eventTitle === 'Event')).map(x => x.evId));
       container.innerHTML = refunds.map(r => {
-        const ev = this.allEvents.find(e => e._id === r.eventId);
-        const eventTitle = r.eventTitle && r.eventTitle !== 'undefined' ? r.eventTitle : (ev ? ev.title : 'Event');
+        const x = this._resolveRefund(r);
+        const who = x.userName || x.userEmail || 'Customer';
         return `<div class="org-refund-card">
   <div class="org-refund-header">
     <div>
-      <div class="org-refund-title">${esc(eventTitle)} — ${esc((r.ticketType || '').toUpperCase())}</div>
-      <div class="org-refund-meta">${esc(r.userName || 'User')} · ${esc(r.userEmail || '')} · ${esc(new Date(r.createdAt).toLocaleDateString())}</div>
+      <div class="org-refund-title">${esc(x.eventTitle)}${x.ticketType ? ' — ' + esc(String(x.ticketType).toUpperCase()) : ''}</div>
+      <div class="org-refund-meta" style="display:flex; flex-wrap:wrap; gap:0.25rem 1rem;">
+        <span><i class="fas fa-user"></i> ${esc(who)}${x.userName && x.userEmail ? ' · ' + esc(x.userEmail) : ''}</span>
+        <span><i class="fas fa-calendar-alt"></i> Event: ${esc(this._fmtDate(x.eventDate))}</span>
+        <span><i class="fas fa-clock"></i> Requested: ${esc(this._fmtDate(x.requestedAt))}</span>
+      </div>
     </div>
     <span class="status-pill ${esc(r.status)}">${esc(r.status)}</span>
   </div>
   <div class="org-refund-reason"><strong>Reason:</strong> ${esc(r.reason)}</div>
-  <div style="font-size:0.82rem; color:var(--dim); margin-bottom:0.75rem;">${r.amount ? `Requested: <strong style="color:var(--teal);">₵${esc(r.amount)}</strong>` : '<strong style="color:var(--teal);">Full refund</strong>'}</div>
+  <div style="font-size:0.82rem; color:var(--dim); margin-bottom:0.75rem;">Refund amount: <strong style="color:var(--teal);">${x.amount != null ? esc(x.sym) + esc(x.amount.toFixed(2)) : 'Full refund'}</strong></div>
   ${r.status === 'pending' ? `<div class="org-refund-actions">
     <button class="btn btn-success btn-sm" data-ui-action="approve-refund" data-id="${esc(r._id)}"><i class="fas fa-check"></i> Approve</button>
     <button class="btn btn-danger btn-sm" data-ui-action="reject-refund" data-id="${esc(r._id)}"><i class="fas fa-times"></i> Reject</button>
@@ -2684,29 +2783,102 @@ class GlycrApp {
   }
 
   // ─── Coupon Manager ───────────────────────────────────────
+  _fillCouponEventSelects() {
+    const evs  = [...this.orgEvents].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const opts = evs.map(e => `<option value="${esc(e._id)}">${esc(e.title)}</option>`).join('');
+    const f = document.getElementById('coupon-event-filter');
+    if (f) {
+      const cur = f.value || 'all';
+      f.innerHTML = '<option value="all">All events</option><option value="global">Applies to all my events</option>' + opts;
+      f.value = [...f.options].some(o => o.value === cur) ? cur : 'all';
+    }
+    const c = document.getElementById('coupon-event');
+    if (c) c.innerHTML = '<option value="">All my events</option>' + opts;
+  }
+
   async openCouponsModal() {
+    this._reopenAfter = null;
+    if (!this.dataLoaded) await this.loadAllData();
+    ['coupon-search'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['coupon-status-filter', 'coupon-type-filter', 'coupon-event-filter'].forEach(id => { const el = document.getElementById(id); if (el) el.value = 'all'; });
+    this._fillCouponEventSelects();
     this.openModal('coupons-modal');
     await this.loadCoupons();
-    try {
-      const myEvents = await this.fetchApi(`/events?organizerId=${this.currentUser.id}`);
-      const sel = document.getElementById('coupon-event');
-      if (sel) sel.innerHTML = '<option value="">All my events</option>' + this._list(myEvents).map(e => `<option value="${esc(e._id)}">${esc(e.title)}</option>`).join('');
-    } catch {}
   }
 
   async loadCoupons() {
     const list = document.getElementById('coupons-list');
     if (!list) return;
+    list.innerHTML = '<div class="loading-placeholder"><div class="spinner"></div></div>';
     try {
-      const coupons = await this.fetchApi('/coupons');
-      if (!coupons.length) { list.innerHTML = '<p style="color:var(--muted); font-size:0.82rem;">No coupon codes yet</p>'; return; }
-      const now = new Date();
-      list.innerHTML = coupons.map(c => {
-        const isExpired = new Date(c.expiryDate) < now;
-        const discStr   = c.type === 'percentage' ? `${c.value}% off` : `₵${c.value} off`;
-        return `<div class="coupon-item"><div><div class="coupon-code">${esc(c.code)}</div><div class="coupon-meta">${esc(discStr)} · Expires ${new Date(c.expiryDate).toLocaleDateString()} · Used ${c.usedCount || 0}/${c.usageLimit || '∞'}</div></div><span class="coupon-badge ${isExpired ? 'expired' : 'active'}">${isExpired ? 'Expired' : 'Active'}</span></div>`;
-      }).join('');
-    } catch { list.innerHTML = '<p style="color:var(--muted); font-size:0.82rem;">Could not load coupons</p>'; }
+      this.coupons = this._asArray(await this.fetchApi('/coupons'), 'coupons', 'data');
+      this.renderCoupons();
+    } catch (err) {
+      list.innerHTML = `<div class="manage-empty"><i class="fas fa-triangle-exclamation"></i>${esc(err.message || 'Could not load coupons')}</div>`;
+    }
+  }
+
+  _couponState(c) {
+    if (c.expiryDate && new Date(c.expiryDate) < new Date()) return 'expired';
+    if (c.usageLimit && (c.usedCount || 0) >= c.usageLimit) return 'used_up';
+    return 'active';
+  }
+
+  renderCoupons() {
+    const list = document.getElementById('coupons-list');
+    if (!list) return;
+    const all   = this.coupons || [];
+    const q     = (document.getElementById('coupon-search')?.value || '').trim().toLowerCase();
+    const st    = document.getElementById('coupon-status-filter')?.value || 'all';
+    const ty    = document.getElementById('coupon-type-filter')?.value || 'all';
+    const evf   = document.getElementById('coupon-event-filter')?.value || 'all';
+    const rows  = all.filter(c => {
+      if (q && !String(c.code || '').toLowerCase().includes(q)) return false;
+      if (st !== 'all' && this._couponState(c) !== st) return false;
+      if (ty !== 'all' && c.type !== ty) return false;
+      const eid = this._idOf(c.eventId);
+      if (evf === 'global' && eid) return false;
+      if (evf !== 'all' && evf !== 'global' && eid !== evf) return false;
+      return true;
+    });
+    const chip = document.getElementById('coupons-count');
+    if (chip) chip.textContent = all.length ? (rows.length === all.length ? `${all.length}` : `${rows.length} of ${all.length}`) : '';
+    if (!all.length) {
+      list.innerHTML = '<div class="manage-empty"><i class="fas fa-tag"></i>No codes yet. Use the + button to create your first one.</div>'; return;
+    }
+    if (!rows.length) {
+      list.innerHTML = '<div class="manage-empty"><i class="fas fa-filter"></i>No codes match your filters.</div>'; return;
+    }
+    const badge = { active: ['active', 'Active'], expired: ['expired', 'Expired'], used_up: ['used-up', 'Used up'] };
+    list.innerHTML = rows.map(c => {
+      const id    = this._idOf(c._id || c.id);
+      const state = this._couponState(c);
+      const [cls, label] = badge[state];
+      const disc  = c.type === 'percentage' ? `${c.value}% off` : `₵${c.value} off`;
+      const ev    = this._findEvent(this._idOf(c.eventId));
+      const scope = this._idOf(c.eventId) ? (ev?.title || c.eventTitle || 'One event') : 'All my events';
+      return `<div class="manage-item">
+        <div class="manage-item-icon"><i class="fas fa-tag"></i></div>
+        <div class="manage-item-body">
+          <div class="coupon-code">${esc(c.code)}</div>
+          <div class="coupon-meta">${esc(disc)} · Expires ${esc(this._fmtDate(c.expiryDate))} · Used ${esc(c.usedCount || 0)}/${c.usageLimit ? esc(c.usageLimit) : '∞'} · ${esc(scope)}</div>
+        </div>
+        <div class="manage-item-side">
+          <span class="coupon-badge ${cls}">${label}</span>
+          <button type="button" class="icon-btn icon-btn-sm icon-btn-danger" data-ui-action="coupon-delete" data-id="${esc(id)}" title="Delete code" aria-label="Delete code ${esc(c.code)}"><i class="fas fa-trash"></i></button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  openCouponCreateModal() {
+    this._fillCouponEventSelects();
+    ['coupon-code', 'coupon-value', 'coupon-expiry', 'coupon-limit'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    const t = document.getElementById('coupon-type');  if (t) t.value = 'percentage';
+    const e = document.getElementById('coupon-event'); if (e) e.value = '';
+    const s = document.getElementById('coupon-create-status'); if (s) s.style.display = 'none';
+    this._reopenAfter = 'coupons-modal';          // closing the form returns to the list
+    this.openModal('coupon-create-modal');
   }
 
   async createCoupon(e) {
@@ -2718,14 +2890,32 @@ class GlycrApp {
     const limit   = document.getElementById('coupon-limit').value;
     const eventId = document.getElementById('coupon-event').value;
     const s = document.getElementById('coupon-create-status');
+    const fail = msg => { s.style.display = 'block'; s.className = 'status-msg error'; s.textContent = msg; };
+    if (!code) return fail('Enter a code or generate one.');
+    if (!(value > 0)) return fail('Discount value must be greater than 0.');
+    if (type === 'percentage' && value > 100) return fail('A percentage discount can’t exceed 100%.');
+    if (!expiry) return fail('Choose an expiry date.');
     s.style.display = 'block'; s.className = 'status-msg loading'; s.textContent = 'Creating code…';
     try {
       await this.fetchApi('/coupons', { method: 'POST', body: JSON.stringify({ code, type, value, expiryDate: expiry, usageLimit: limit ? parseInt(limit) : null, eventId: eventId || null }) });
-      s.className = 'status-msg success'; s.innerHTML = `<strong>✓ Code "${esc(code)}" created!</strong>`;
-      document.getElementById('coupon-code').value = ''; document.getElementById('coupon-value').value = '';
-      await this.loadCoupons(); await this.loadAllData();
-      setTimeout(() => { s.style.display = 'none'; }, 3000);
-    } catch (err) { s.className = 'status-msg error'; s.textContent = err.message; }
+      this.closeAllModals();                      // back to the list (see _reopenAfter)
+      await this.loadCoupons();
+    } catch (err) { fail(err.message || 'Could not create the code.'); }
+  }
+
+  async deleteCoupon(id) {
+    const c = (this.coupons || []).find(x => this._idOf(x._id || x.id) === String(id));
+    const ok = await this.confirmDialog({
+      title: `Delete code ${c ? c.code : ''}?`,
+      message: 'Buyers will no longer be able to use it. Orders that already used it are not affected.',
+      confirmText: 'Delete code', tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await this.fetchApi(`/coupons/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      this.coupons = (this.coupons || []).filter(x => this._idOf(x._id || x.id) !== String(id));
+      this.renderCoupons();
+    } catch (err) { this.showError(err.message || 'Could not delete the code.'); }
   }
 
   generateCouponCode() {
@@ -3175,6 +3365,7 @@ class GlycrApp {
           case 'reject-refund':   this.rejectRefund(d.id); break;
           case 'staff-toggle':    this._toggleStaffStatus(d.id, d.activate === 'true'); break;
           case 'staff-delete':    this._deleteStaff(d.id); break;
+          case 'coupon-delete':   this.deleteCoupon(d.id); break;
         }
       }
 
@@ -3319,23 +3510,75 @@ Object.assign(GlycrApp.prototype, {
     });
   },
 
+  _normScan(v) {
+    const staffObj = (v.staffId && typeof v.staffId === 'object') ? v.staffId : null;
+    const staffId  = this._idOf(v.staffId);
+    const byId     = this._idOf(v.scannedById);
+    const isMe     = !staffId;                                  // no staff record ⇒ the organiser scanned it themself
+    let name = v.scannedByName || v.staffName || staffObj?.name || v.validatedBy || '';
+    if (!name || /^organi[sz]er$/i.test(name)) name = isMe ? (this.currentUser?.name || 'Organiser') : (name || 'Staff');
+    return {
+      raw: v,
+      ticketId: v.ticketId || this._idOf(v.ticketRef) || '—',
+      buyer:    v.buyerName || v.buyerEmail || 'Guest',
+      evId:     this._idOf(v.eventId),
+      type:     v.ticketType || '',
+      at:       v.scannedAt || v.validatedAt || v.createdAt || null,
+      scanner:  { key: isMe ? '__me__' : (staffId || byId || name.toLowerCase()), name, isMe },
+      method:   v.method || 'manual',
+      result:   v.result || 'valid',
+    };
+  },
+
+  _resultMeta(result) {
+    if (result === 'valid')        return { group: 'valid',        cls: 'pill-ok',   label: 'Valid' };
+    if (result === 'already_used') return { group: 'already_used', cls: 'pill-warn', label: 'Already used' };
+    return { group: 'invalid', cls: 'pill-bad', label: String(result || 'invalid').replace(/_/g, ' ') };
+  },
+
   async _loadValidationStats(eventId) {
     try { this.acl.requireEventScope(eventId); } catch { return; }
+    const type = document.getElementById('validation-type-filter')?.value || '';
+    const set  = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const show = st => {
+      set('val-total', st.total); set('val-used', st.used);
+      set('val-remaining', st.remaining); set('val-pct', `${st.pct}%`);
+    };
+    // make it obvious which slice the numbers describe
+    const labels = document.querySelectorAll('#validation-stats-row .payout-summary-label');
+    ['Total Tickets', 'Checked In', 'Remaining', 'Utilisation'].forEach((txt, i) => {
+      if (labels[i]) labels[i].textContent = type ? `${txt} · ${type.toUpperCase()}` : txt;
+    });
     try {
-      const stats = await this.fetchApi(`/tickets/checkin-stats?eventId=${encodeURIComponent(eventId)}`);
-      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-      set('val-total', stats.total); set('val-used', stats.used);
-      set('val-remaining', stats.remaining); set('val-pct', `${stats.pct}%`);
+      if (type) {
+        try { show(await this._statsFromTickets(eventId, type)); return; } catch { /* fall back to the server */ }
+      }
+      const qs = new URLSearchParams({ eventId });
+      if (type) qs.append('ticketType', type);
+      show(await this.fetchApi(`/tickets/checkin-stats?${qs}`));
     } catch (err) { this._resetValidationStats(); this.showError(err.message || 'Could not load check-in stats.'); }
+  },
+
+  async _statsFromTickets(eventId, type) {
+    const raw = await this.fetchApi(`/tickets?eventId=${encodeURIComponent(eventId)}&limit=5000`);
+    const all = Array.isArray(raw) ? raw : (raw && (raw.tickets || raw.data));
+    if (!Array.isArray(all)) throw new Error('Unexpected tickets response');
+    const want = String(type).toLowerCase();
+    const live = all.filter(t => String(t.ticketType || t.type || '').toLowerCase() === want
+      && !t.refunded && !['cancelled', 'refund_pending', 'refunded'].includes(t.status));
+    const used = live.filter(t => t.status === 'used' || t.validated).length;
+    return { total: live.length, used, remaining: live.length - used, pct: live.length ? Math.round(used / live.length * 100) : 0 };
   },
 
   async _loadCheckinFeed(eventId) {
     try { this.acl.requireEventScope(eventId); } catch { return; }
-    const typeFilter = document.getElementById('validation-type-filter')?.value || '';
+    const type = document.getElementById('validation-type-filter')?.value || '';
     try {
-      const params = new URLSearchParams({ eventId, limit: 50 });
-      if (typeFilter) params.append('ticketType', typeFilter);
-      this.renderCheckinFeed(await this.fetchApi(`/tickets/validations?${params}`));
+      const params = new URLSearchParams({ eventId, limit: type ? 500 : 50 });
+      if (type) params.append('ticketType', type);
+      let rows = this._asArray(await this.fetchApi(`/tickets/validations?${params}`), 'validations', 'logs', 'data');
+      if (type) rows = rows.filter(v => String(v.ticketType || '').toLowerCase() === type.toLowerCase());
+      this.renderCheckinFeed(rows.slice(0, 50));
     } catch (err) { this.renderCheckinFeed([]); this.showError(err.message || 'Could not load check-ins.'); }
   },
 
@@ -3343,34 +3586,32 @@ Object.assign(GlycrApp.prototype, {
     const feed  = document.getElementById('checkin-feed');
     const count = document.getElementById('checkin-feed-count');
     if (!feed) return;
-    if (count) count.textContent = validations.length ? `${validations.length} entries` : '';
-    if (!validations.length) {
+    const rows = (validations || []).map(v => this._normScan(v));
+    if (count) count.textContent = rows.length ? `${rows.length} entries` : '';
+    if (!rows.length) {
       feed.innerHTML = `<div style="text-align:center;padding:2.5rem;color:var(--muted);font-size:0.82rem;">
         <i class="fas fa-inbox" style="font-size:1.4rem;display:block;margin-bottom:0.5rem;opacity:0.3;"></i>
         No check-ins recorded yet.</div>`;
       return;
     }
-    feed.innerHTML = validations.map(v => {
-      const timeAgo    = this._timeAgo(new Date(v.validatedAt || v.scannedAt || Date.now()));
-      const methodIcon = v.method === 'scan' ? 'fa-qrcode' : 'fa-keyboard';
-      return `<div style="display:flex;align-items:center;gap:0.85rem;padding:0.85rem 1.25rem;
-        border-bottom:1px solid var(--border);font-size:0.82rem;">
-        <div style="width:32px;height:32px;border-radius:50%;flex-shrink:0;
-          background:rgba(110,231,183,0.1);color:var(--mint);
-          display:flex;align-items:center;justify-content:center;font-size:0.75rem;">
-          <i class="fas fa-check"></i></div>
+    feed.innerHTML = rows.map(l => {
+      const m = this._resultMeta(l.result);
+      const tone = { valid: ['rgba(110,231,183,0.1)', 'var(--mint)', 'fa-check'], already_used: ['rgba(251,191,36,0.1)', 'var(--gold)', 'fa-rotate-left'], invalid: ['rgba(255,107,107,0.1)', 'var(--coral)', 'fa-xmark'] }[m.group];
+      const methodIcon = l.method === 'scan' ? 'fa-qrcode' : 'fa-keyboard';
+      return `<div style="display:flex;align-items:center;gap:0.85rem;padding:0.85rem 1.25rem;border-bottom:1px solid var(--border);font-size:0.82rem;">
+        <div style="width:32px;height:32px;border-radius:50%;flex-shrink:0;background:${tone[0]};color:${tone[1]};display:flex;align-items:center;justify-content:center;font-size:0.75rem;">
+          <i class="fas ${tone[2]}"></i></div>
         <div style="flex:1;min-width:0;">
-          <div style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--teal);">
-            ${esc(v.ticketId || '—')}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--teal);word-break:break-all;">${esc(l.ticketId)}</div>
           <div style="color:var(--text);margin-top:0.1rem;">
-            ${esc(v.buyerName || v.buyerEmail || 'Guest')}
-            <span style="color:var(--muted);margin-left:0.5rem;">${esc((v.ticketType||'').toUpperCase())}</span>
+            ${esc(l.buyer)}
+            <span style="color:var(--muted);margin-left:0.5rem;">${esc(String(l.type).toUpperCase())}</span>
+            ${m.group !== 'valid' ? `<span class="pill ${m.cls}" style="margin-left:0.5rem;">${esc(m.label)}</span>` : ''}
           </div>
         </div>
         <div style="text-align:right;flex-shrink:0;">
-          <div style="color:var(--muted);font-size:0.72rem;">${timeAgo}</div>
-          <div style="margin-top:0.1rem;color:var(--dim);font-size:0.7rem;">
-            <i class="fas ${methodIcon}"></i> ${esc(v.validatedBy || 'organizer')}</div>
+          <div style="color:var(--muted);font-size:0.72rem;">${l.at ? this._timeAgo(new Date(l.at)) : '—'}</div>
+          <div style="margin-top:0.1rem;color:var(--dim);font-size:0.7rem;"><i class="fas ${methodIcon}"></i> ${esc(l.scanner.name)}</div>
         </div>
       </div>`;
     }).join('');
@@ -3403,6 +3644,8 @@ Object.assign(GlycrApp.prototype, {
         const eid = String(t.eventId || t.event?._id || '');
         return this.acl.ownsEvent(eid);
       });
+      const typeSel = document.getElementById('validation-type-filter')?.value || '';
+      if (typeSel) tickets = tickets.filter(t => String(t.ticketType || '').toLowerCase() === typeSel.toLowerCase());
       if (!tickets.length) {
         s.className='status-msg error'; s.textContent='No tickets found in your events.'; return;
       }
@@ -3514,17 +3757,26 @@ Object.assign(GlycrApp.prototype, {
   async openStaffModal() {
     try { this.acl.requireOrganizer(); } catch { return; }
     if (!this.dataLoaded) await this.loadAllData();
-    const evOptions = this.orgEvents.filter(e => !e.isCancelled)
-      .map(e => `<option value="${esc(e._id)}">${esc(e.title)}</option>`).join('');
-    const assign = document.getElementById('staff-event-assign');
-    const filter = document.getElementById('staff-event-filter');
-    if (assign) assign.innerHTML = '<option value="">Select event…</option>' + evOptions;
-    if (filter) filter.innerHTML = '<option value="">All events</option>' + evOptions;
-    document.getElementById('staff-create-status').style.display = 'none';
-    ['staff-name','staff-email','staff-phone','staff-pin'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
-    if (document.getElementById('staff-role')) document.getElementById('staff-role').value = 'scanner';
-    await this._renderStaffList();
+    this._reopenAfter = null;
+    const evs = [...this.orgEvents].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const f = document.getElementById('staff-event-filter');
+    if (f) f.innerHTML = '<option value="">All events</option>' + evs.map(e => `<option value="${esc(e._id)}">${esc(e.title)}</option>`).join('');
+    ['staff-search', 'staff-event-filter', 'staff-role-filter', 'staff-status-filter'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     this.openModal('staff-modal');
+    await this._loadStaff();
+  },
+
+  openStaffCreateModal() {
+    try { this.acl.requireOrganizer(); } catch { return; }
+    const assign = document.getElementById('staff-event-assign');
+    if (assign) assign.innerHTML = '<option value="">Select event…</option>' +
+      this.orgEvents.filter(e => !e.isCancelled).map(e => `<option value="${esc(e._id)}">${esc(e.title)}</option>`).join('');
+    ['staff-name', 'staff-email', 'staff-phone', 'staff-pin'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    const role = document.getElementById('staff-role'); if (role) role.value = 'scanner';
+    this.clearFieldErrors('staff-name-err', 'staff-email-err', 'staff-phone-err', 'staff-event-err');
+    const st = document.getElementById('staff-create-status'); if (st) st.style.display = 'none';
+    this._reopenAfter = 'staff-modal';               // closing the form returns to the list
+    this.openModal('staff-create-modal');
   },
 
   async createStaffMember() {
@@ -3551,81 +3803,72 @@ Object.assign(GlycrApp.prototype, {
         method: 'POST',
         body: JSON.stringify({ name, email, phone, role, eventId, pin, organizerId: this.currentUser.id }),
       });
-      s.className = 'status-msg success';
-      s.innerHTML = `<strong>✓ Staff account created!</strong> ${esc(name)} can now validate tickets for this event.`;
-      ['staff-name','staff-email','staff-phone','staff-pin'].forEach(id => {
-        const el = document.getElementById(id); if (el) el.value = '';
-      });
-      const assignEl = document.getElementById('staff-event-assign');
-      if (assignEl) assignEl.value = '';
-      await this._renderStaffList();
-      setTimeout(() => { s.style.display = 'none'; }, 3500);
+      this.closeAllModals();                         // back to the staff list (see _reopenAfter)
+      await this._loadStaff();
     } catch (err) {
       s.className = 'status-msg error';
       s.textContent = err.message || 'Failed to create staff member.';
     }
   },
 
-  async _renderStaffList() {
+  async _loadStaff() {
     const container = document.getElementById('staff-list');
     if (!container) return;
-    const eventFilter = document.getElementById('staff-event-filter')?.value || '';
     container.innerHTML = '<div class="loading-placeholder"><div class="spinner"></div></div>';
     try {
       const params = new URLSearchParams({ organizerId: this.currentUser?.id || '' });
-      if (eventFilter) params.append('eventId', eventFilter);
-      const staff = await this.fetchApi(`/staff?${params}`);
-      if (!staff.length) {
-        container.innerHTML = '<p style="color:var(--muted);font-size:0.82rem;padding:1rem 0;">No staff members yet. Create one on the left.</p>';
-        return;
-      }
-      container.innerHTML = staff.map(s => {
-        const ev     = this.allEvents.find(e => e._id === s.eventId || e._id === String(s.eventId));
-        const evName = ev ? ev.title : '—';
-        const active = s.status !== 'inactive';
-        const sid    = s.staffId || s._id || s.id || '';
-        return `<div style="background:var(--bg-3);border:1px solid var(--border);border-radius:var(--radius);
-        padding:0.9rem 1rem;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.85rem;">
-        <div style="width:36px;height:36px;border-radius:50%;flex-shrink:0;
-          background:linear-gradient(135deg,var(--teal),var(--sky));
-          display:flex;align-items:center;justify-content:center;
-          font-family:'Syne',sans-serif;font-size:0.95rem;font-weight:700;color:var(--bg);">
-          ${esc((s.name||'S').charAt(0).toUpperCase())}</div>
-        <div style="flex:1;min-width:0;">
-          <div style="font-weight:600;color:var(--text);font-size:0.85rem;">${esc(s.name||'—')}</div>
-          <div style="font-size:0.72rem;color:var(--muted);margin-top:0.1rem;">
-            ${esc(s.email||'—')}, ${esc(s.phone||'—')}
-            <span style="margin-left:0.5rem;padding:0.1rem 0.4rem;background:rgba(125,211,252,0.12);
-              color:var(--sky);border-radius:100px;font-family:'JetBrains Mono',monospace;
-              font-size:0.6rem;letter-spacing:0.06em;text-transform:uppercase;">${esc(s.role||'scanner')}</span>
-          </div>
-          <div style="font-size:0.7rem;color:var(--muted);margin-top:0.1rem;">
-            <i class="fas fa-calendar-alt" style="font-size:0.6rem;"></i> ${esc(evName)}
-          </div>
+      this._staffCache = this._asArray(await this.fetchApi(`/staff?${params}`), 'staff', 'data');
+    } catch (err) {
+      this._staffCache = null;
+      container.innerHTML = `<div class="manage-empty"><i class="fas fa-triangle-exclamation"></i>${esc(err.message || 'Failed to load staff members.')}</div>`;
+      return;
+    }
+    this._renderStaffList();
+  },
+
+  _renderStaffList() {
+    const container = document.getElementById('staff-list');
+    if (!container) return;
+    if (!Array.isArray(this._staffCache)) { this._loadStaff(); return; }
+    const all = this._staffCache;
+    const q   = (document.getElementById('staff-search')?.value || '').trim().toLowerCase();
+    const evf = document.getElementById('staff-event-filter')?.value || '';
+    const rf  = document.getElementById('staff-role-filter')?.value || '';
+    const sf  = document.getElementById('staff-status-filter')?.value || '';
+    const evIdsOf = s => (Array.isArray(s.eventIds) && s.eventIds.length ? s.eventIds : [s.eventId]).map(x => this._idOf(x)).filter(Boolean);
+    const rows = all.filter(s => {
+      if (q && !`${s.name || ''} ${s.email || ''} ${s.phone || ''}`.toLowerCase().includes(q)) return false;
+      if (evf && !evIdsOf(s).includes(evf)) return false;
+      if (rf && (s.role || 'scanner') !== rf) return false;
+      const active = s.status !== 'inactive';
+      if (sf === 'active' && !active) return false;
+      if (sf === 'inactive' && active) return false;
+      return true;
+    });
+    const chip = document.getElementById('staff-count');
+    if (chip) chip.textContent = all.length ? (rows.length === all.length ? `${all.length}` : `${rows.length} of ${all.length}`) : '';
+    if (!all.length) { container.innerHTML = '<div class="manage-empty"><i class="fas fa-users"></i>No staff members yet. Use the icon at the top right to add one.</div>'; return; }
+    if (!rows.length) { container.innerHTML = '<div class="manage-empty"><i class="fas fa-filter"></i>No staff match your filters.</div>'; return; }
+    container.innerHTML = rows.map(s => {
+      const active = s.status !== 'inactive';
+      const sid    = s.staffId || s._id || s.id || '';
+      const evNames = evIdsOf(s).map(id => this._findEvent(id)?.title).filter(Boolean);
+      const evName = evNames.length ? evNames.join(', ') : (s.eventTitle || '—');
+      return `<div class="manage-item">
+        <div class="profile-avatar-small" style="width:36px;height:36px;flex-shrink:0;">${esc((s.name || 'S').charAt(0).toUpperCase())}</div>
+        <div class="manage-item-body">
+          <div style="font-weight:600;color:var(--text);font-size:0.85rem;">${esc(s.name || '—')}
+            <span class="pill pill-info" style="margin-left:0.4rem;">${esc(s.role || 'scanner')}</span></div>
+          <div style="font-size:0.72rem;color:var(--muted);margin-top:0.1rem;">${esc(s.email || '—')}${s.phone ? ' · ' + esc(s.phone) : ''}</div>
+          <div style="font-size:0.7rem;color:var(--muted);margin-top:0.1rem;"><i class="fas fa-calendar-alt" style="font-size:0.6rem;"></i> ${esc(evName)}</div>
         </div>
-        <div style="display:flex;flex-direction:column;gap:0.35rem;flex-shrink:0;align-items:flex-end;">
-          <span style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;letter-spacing:0.06em;
-            padding:0.18rem 0.5rem;border-radius:100px;
-            ${active
-          ? 'background:rgba(110,231,183,0.1);color:var(--mint);border:1px solid rgba(110,231,183,0.25);'
-          : 'background:rgba(255,107,107,0.1);color:var(--coral);border:1px solid rgba(255,107,107,0.25);'}">
-            ${active ? 'Active' : 'Inactive'}</span>
-          <div style="display:flex;gap:0.3rem;">
-            <button class="btn btn-ghost btn-sm" style="font-size:0.7rem;padding:0.2rem 0.5rem;"
-              data-ui-action="staff-toggle" data-id="${esc(sid)}" data-activate="${!active}">
-              <i class="fas fa-${active ? 'pause' : 'play'}"></i> ${active ? 'Deactivate' : 'Activate'}
-            </button>
-            <button class="btn btn-danger btn-sm" style="font-size:0.7rem;padding:0.2rem 0.5rem;"
-              data-ui-action="staff-delete" data-id="${esc(sid)}">
-              <i class="fas fa-trash"></i>
-            </button>
-          </div>
+        <div class="manage-item-side">
+          <span class="pill ${active ? 'pill-ok' : 'pill-bad'}">${active ? 'Active' : 'Inactive'}</span>
+          <button type="button" class="icon-btn icon-btn-sm" data-ui-action="staff-toggle" data-id="${esc(sid)}" data-activate="${!active}" title="${active ? 'Deactivate' : 'Activate'}" aria-label="${active ? 'Deactivate' : 'Activate'} ${esc(s.name || 'staff')}"><i class="fas fa-${active ? 'pause' : 'play'}"></i></button>
+          <button type="button" class="icon-btn icon-btn-sm icon-btn-danger" data-ui-action="staff-delete" data-id="${esc(sid)}" title="Remove" aria-label="Remove ${esc(s.name || 'staff')}"><i class="fas fa-trash"></i></button>
         </div>
       </div>`;
-      }).join('');
-    } catch (err) {
-      container.innerHTML = `<p style="color:var(--coral);font-size:0.82rem;padding:1rem 0;">${esc(err.message || 'Failed to load staff members.')}</p>`;
-    }
+    }).join('');
   },
 
   async _toggleStaffStatus(staffId, activate) {
@@ -3636,7 +3879,7 @@ Object.assign(GlycrApp.prototype, {
         body: JSON.stringify({ status: activate ? 'active' : 'inactive' }),
       });
       this.showToast(activate ? 'Staff member activated' : 'Staff member deactivated', activate ? 'success' : 'warning');
-      await this._renderStaffList();
+      await this._loadStaff();
     } catch (err) {
       this.showError(err.message || 'Failed to update staff status.');
     }
@@ -3652,7 +3895,7 @@ Object.assign(GlycrApp.prototype, {
     if (!ok) return;
     try {
       await this.fetchApi(`/staff/${staffId}`, { method: 'DELETE' });
-      await this._renderStaffList();
+      await this._loadStaff();
     } catch (err) {
       this.showError(err.message || 'Failed to remove staff member.');
     }
@@ -3664,68 +3907,100 @@ Object.assign(GlycrApp.prototype, {
 
   async openCheckinLog() {
     try { this.acl.requireOrganizer(); } catch { return; }
+    if (!this.dataLoaded) await this.loadAllData();
+    this._reopenAfter = null;
     const sel = document.getElementById('checkin-log-event-filter');
-    if (sel && this.orgEvents.length) {
-      sel.innerHTML = '<option value="">All my events</option>' +
-        this.orgEvents.filter(e => !e.isCancelled)
-          .map(e => `<option value="${esc(e._id)}">${esc(e.title)}</option>`).join('');
+    if (sel) {
+      const evs = [...this.orgEvents].sort((a, b) => new Date(b.date) - new Date(a.date));   // every event: past & cancelled ones have logs too
+      sel.innerHTML = '<option value="">All my events</option>' + evs.map(e => `<option value="${esc(e._id)}">${esc(e.title)}</option>`).join('');
+      sel.value = '';
     }
-    const staffSel = document.getElementById('checkin-log-staff-filter');
-    if (staffSel) {
-      const staffNames = [...new Set(this.staffMembers.map(s => s.name))];
-      staffSel.innerHTML = '<option value="">Anyone</option><option value="organizer">Organizer (me)</option>' +
-        staffNames.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
-    }
+    const rf = document.getElementById('checkin-log-result-filter'); if (rf) rf.value = '';
+    const sf = document.getElementById('checkin-log-staff-filter');  if (sf) sf.innerHTML = '<option value="">Anyone</option>';
     this.openModal('checkin-log-modal');
     await this.loadCheckinLog();
   },
 
   async loadCheckinLog() {
     try { this.acl.requireOrganizer(); } catch { return; }
-    const eventId     = document.getElementById('checkin-log-event-filter')?.value  || '';
-    const staffFilter = document.getElementById('checkin-log-staff-filter')?.value  || '';
+    const eventId = document.getElementById('checkin-log-event-filter')?.value || '';
     const tbody = document.getElementById('checkin-log-tbody');
     if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="7" class="table-empty"><div class="spinner" style="margin:1rem auto;"></div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="table-empty"><div class="spinner" style="margin:1rem auto;"></div></td></tr>';
     if (eventId) { try { this.acl.requireEventScope(eventId); } catch { return; } }
     try {
-      const params = new URLSearchParams({ organizerId: this.currentUser.id });
-      if (eventId)     params.append('eventId', eventId);
-      if (staffFilter) params.append('staffFilter', staffFilter);
-      const logs = await this.fetchApi(`/tickets/validations?${params}`);
-
-      if (!logs.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="table-empty">No check-in records found.</td></tr>'; return;
-      }
-      tbody.innerHTML = logs.map(v => {
-        const ev = this.allEvents.find(e => e._id === v.eventId || e._id === String(v.eventId));
-        return `<tr>
-          <td style="font-family:'JetBrains Mono',monospace;color:var(--teal);font-size:0.75rem;">${esc(v.ticketId||'—')}</td>
-          <td>${esc(v.buyerName||v.buyerEmail||'Guest')}</td>
-          <td>${esc(ev?ev.title:(v.eventId||'—'))}</td>
-          <td><span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;text-transform:uppercase;">${esc(v.ticketType||'—')}</span></td>
-          <td>${v.validatedAt?new Date(v.validatedAt).toLocaleString('en-GB'):'—'}</td>
-          <td>${esc(v.validatedBy||'organizer')}</td>
-          <td><span style="font-family:'JetBrains Mono',monospace;font-size:0.62rem;padding:0.15rem 0.45rem;
-            border-radius:100px;text-transform:uppercase;letter-spacing:0.05em;
-            ${v.method==='scan'
-          ?'background:rgba(45,212,191,0.1);color:var(--teal);border:1px solid rgba(45,212,191,0.2);'
-          :'background:rgba(125,211,252,0.1);color:var(--sky);border:1px solid rgba(125,211,252,0.2);'}">
-            ${esc(v.method||'manual')}</span></td>
-        </tr>`;
-      }).join('');
+      const params = new URLSearchParams({ organizerId: this.currentUser.id, limit: 500 });
+      if (eventId) params.append('eventId', eventId);
+      let logs = this._asArray(await this.fetchApi(`/tickets/validations?${params}`), 'validations', 'logs', 'data').map(v => this._normScan(v));
+      if (eventId) logs = logs.filter(l => !l.evId || l.evId === eventId);
+      logs.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+      await this._ensureEvents(logs.map(l => l.evId));       // so we can show names, not ids
+      this._checkinLogs = logs;
+      this._fillScannerFilter();
+      this.renderCheckinLog();
     } catch (err) {
       if (!err.message?.startsWith('[AccessDenied]'))
-        tbody.innerHTML='<tr><td colspan="7" class="table-empty">Failed to load log.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="table-empty">Failed to load log.</td></tr>';
     }
+  },
+
+  // Scanner dropdown is built from who actually scanned in the loaded logs
+  _fillScannerFilter() {
+    const sel = document.getElementById('checkin-log-staff-filter');
+    if (!sel) return;
+    const cur = sel.value;
+    const people = new Map();
+    (this._checkinLogs || []).forEach(l => { if (!people.has(l.scanner.key)) people.set(l.scanner.key, l.scanner); });
+    const ordered = [...people.values()].sort((a, b) => (b.isMe - a.isMe) || a.name.localeCompare(b.name));
+    sel.innerHTML = '<option value="">Anyone</option>' +
+      ordered.map(p => `<option value="${esc(p.key)}">${esc(p.name)}${p.isMe ? ' (me)' : ''}</option>`).join('');
+    sel.value = people.has(cur) ? cur : '';
+  },
+
+  // Scanner + result filters are applied locally, so they respond instantly
+  renderCheckinLog() {
+    const tbody = document.getElementById('checkin-log-tbody');
+    if (!tbody) return;
+    const who = document.getElementById('checkin-log-staff-filter')?.value || '';
+    const res = document.getElementById('checkin-log-result-filter')?.value || '';
+    const all = this._checkinLogs || [];
+    const rows = all.filter(l => (!who || l.scanner.key === who) && (!res || this._resultMeta(l.result).group === res));
+    this._checkinView = rows;
+    const chip = document.getElementById('checkin-log-count');
+    if (chip) chip.textContent = all.length ? (rows.length === all.length ? `${all.length}` : `${rows.length} of ${all.length}`) : '';
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="8" class="table-empty">${all.length ? 'No records match your filters.' : 'No check-in records found.'}</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.map(l => {
+      const m  = this._resultMeta(l.result);
+      const ev = this._findEvent(l.evId);
+      return `<tr>
+        <td style="font-family:'JetBrains Mono',monospace;color:var(--teal);font-size:0.72rem;word-break:break-all;">${esc(l.ticketId)}</td>
+        <td>${esc(l.buyer)}</td>
+        <td>${esc(ev?.title || l.raw.eventTitle || 'Unknown event')}</td>
+        <td><span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;text-transform:uppercase;">${esc(l.type || '—')}</span></td>
+        <td style="white-space:nowrap;">${esc(this._fmtDate(l.at, true))}</td>
+        <td>${esc(l.scanner.name)}${l.scanner.isMe ? ' <span style="color:var(--muted);font-size:0.7rem;">(me)</span>' : ''}</td>
+        <td><span class="pill ${l.method === 'scan' ? 'pill-ok' : 'pill-info'}">${esc(l.method)}</span></td>
+        <td><span class="pill ${m.cls}">${esc(m.label)}</span></td>
+      </tr>`;
+    }).join('');
   },
 
   exportCheckinLog() {
     try { this.acl.requireOrganizer(); } catch { return; }
-    const rows = [...document.querySelectorAll('#checkin-log-tbody tr')].map(tr =>
-      [...tr.querySelectorAll('td')].map(td => `"${td.textContent.trim()}"`).join(','));
+    const rows = this._checkinView || [];
     if (!rows.length) return this.showToast('No data to export.', 'warning');
-    const csv = 'Ticket ID,Buyer,Event,Type,Validated At,Validated By,Method\n' + rows.join('\n');
+    let csv = 'Ticket ID,Buyer,Event,Type,Scanned At,Scanned By,Method,Result\n';
+    rows.forEach(l => {
+      csv += [
+        this._csvCell(l.ticketId), this._csvCell(l.buyer),
+        this._csvCell(this._findEvent(l.evId)?.title || l.raw.eventTitle || l.evId),
+        this._csvCell(l.type), this._csvCell(l.at ? new Date(l.at).toLocaleString('en-GB') : ''),
+        this._csvCell(l.scanner.name), this._csvCell(l.method), this._csvCell(this._resultMeta(l.result).label),
+      ].join(',') + '\n';
+    });
     this._dlBlob(csv, `checkin_log_${new Date().toISOString().slice(0,10)}.csv`, 'text/csv');
   },
 
@@ -3742,7 +4017,7 @@ Object.assign(GlycrApp.prototype, {
     const typeFilter = document.getElementById('validation-type-filter');
     if (typeFilter) typeFilter.addEventListener('change', async () => {
       const eventId = document.getElementById('validation-event-select')?.value;
-      if (eventId) await this._loadCheckinFeed(eventId);
+      if (eventId) { await this._loadValidationStats(eventId); await this._loadCheckinFeed(eventId); }
     });
 
     document.addEventListener('click', e => {

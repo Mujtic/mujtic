@@ -793,10 +793,14 @@
   <div class="modal-backdrop"></div>
   <div class="modal-box wide">
     <div class="modal-header">
-      <h3 class="modal-title" id="staff-modal-title">
-        <i class="fas fa-users-cog" style="color:var(--teal);"></i> Staff Management
+      <h3 class="modal-title with-count" id="staff-modal-title">
+        <span><i class="fas fa-users-cog" style="color:var(--teal);"></i> My Staff</span>
+        <span class="count-chip" id="staff-count"></span>
       </h3>
-      <button class="modal-close" aria-label="Close">&times;</button>
+      <div class="modal-header-actions">
+        <button type="button" class="icon-btn icon-btn-primary" onclick="app.openStaffCreateModal()" title="Add a staff member" aria-label="Add a staff member"><i class="fas fa-user-plus"></i></button>
+        <button class="modal-close" aria-label="Close">&times;</button>
+      </div>
     </div>
 
     <!-- Scope notice -->
@@ -809,77 +813,82 @@
       Staff accounts can only be assigned to your own events and can only validate tickets within those events.
     </div>
 
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+    <div class="list-toolbar">
+      <input type="text" id="staff-search" class="filter-input" placeholder="Search name, email or phone…" oninput="app._renderStaffList()">
+      <select id="staff-event-filter" class="filter-input" onchange="app._renderStaffList()">
+        <option value="">All events</option>
+      </select>
+      <select id="staff-role-filter" class="filter-input" onchange="app._renderStaffList()">
+        <option value="">All roles</option>
+        <option value="scanner">Scanner</option>
+        <option value="supervisor">Supervisor</option>
+      </select>
+      <select id="staff-status-filter" class="filter-input" onchange="app._renderStaffList()">
+        <option value="">All status</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+      </select>
+    </div>
+    <div id="staff-list" class="manage-list">
+      <div class="loading-placeholder"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
 
-      <!-- Create staff form -->
-      <div>
-        <h4 style="
-          font-family:'Syne',sans-serif; font-size:0.95rem; font-weight:700;
-          color:var(--bright); margin-bottom:1rem; padding-bottom:0.5rem;
-          border-bottom:1px solid var(--border);">
-          Add Staff Member
-        </h4>
-        <div class="form" id="staff-create-form">
-          <div class="form-field">
-            <label class="form-label">Full Name <span style="color:var(--coral);">*</span></label>
-            <input type="text" id="staff-name" class="input" placeholder="Abena Asante">
-            <span class="field-error" id="staff-name-err"></span>
-          </div>
-          <div class="form-field">
-            <label class="form-label">Email <span style="color:var(--coral);">*</span></label>
-            <input type="email" id="staff-email" class="input" placeholder="staff@email.com">
-            <span class="field-error" id="staff-email-err"></span>
-          </div>
-          <div class="form-field">
-            <label class="form-label">Phone</label>
-            <input type="tel" id="staff-phone" class="input" placeholder="+233xxxxxxxxx">
-            <span class="field-error" id="staff-phone-err"></span>
-          </div>
-          <div class="form-field">
-            <label class="form-label">Role</label>
-            <select id="staff-role" class="input">
-              <option value="scanner">Scanner (validate only)</option>
-              <option value="supervisor">Supervisor (validate + view reports)</option>
-            </select>
-          </div>
-          <div class="form-field">
-            <label class="form-label">Assign to Event <span style="color:var(--coral);">*</span></label>
-            <select id="staff-event-assign" class="input">
-              <option value="">Select event…</option>
-            </select>
-            <span class="field-error" id="staff-event-err"></span>
-          </div>
-          <div class="form-field">
-            <label class="form-label">Temporary PIN (4–8 digits)</label>
-            <input type="text" id="staff-pin" class="input" placeholder="1234" maxlength="8" inputmode="numeric" pattern="[0-9]*">
-            <p style="font-size:0.72rem; color:var(--muted); margin-top:0.25rem;">Staff use this PIN to log into the validation interface.</p>
-          </div>
-          <button class="btn btn-primary btn-block" onclick="app.createStaffMember()">
-            <i class="fas fa-user-plus"></i> Create Staff Account
-          </button>
-          <div id="staff-create-status" class="status-msg" style="display:none; margin-top:0.5rem;"></div>
+<!-- STAFF CREATE (opened from the + icon) -->
+<div id="staff-create-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="staff-create-title">
+  <div class="modal-backdrop"></div>
+  <div class="modal-box" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="staff-create-title"><i class="fas fa-user-plus" style="color:var(--teal);"></i> Add Staff Member</h3>
+      <button class="modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="form" id="staff-create-form">
+      <div class="form-field">
+        <label class="form-label">Full Name <span style="color:var(--coral);">*</span></label>
+        <input type="text" id="staff-name" class="input" placeholder="Abena Asante">
+        <span class="field-error" id="staff-name-err"></span>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label">Email <span style="color:var(--coral);">*</span></label>
+          <input type="email" id="staff-email" class="input" placeholder="staff@email.com">
+          <span class="field-error" id="staff-email-err"></span>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Phone</label>
+          <input type="tel" id="staff-phone" class="input" placeholder="+233xxxxxxxxx">
+          <span class="field-error" id="staff-phone-err"></span>
         </div>
       </div>
-
-      <!-- Staff list -->
-      <div>
-        <div style="
-          display:flex; align-items:center; justify-content:space-between;
-          margin-bottom:1rem; padding-bottom:0.5rem; border-bottom:1px solid var(--border);">
-          <h4 style="font-family:'Syne',sans-serif; font-size:0.95rem; font-weight:700; color:var(--bright);">
-            Current Staff
-          </h4>
-          <div style="display:flex; gap:0.4rem;">
-            <select id="staff-event-filter" class="filter-input" style="font-size:0.75rem; padding:0.35rem 0.6rem;"
-                    onchange="app._renderStaffList()">
-              <option value="">All events</option>
-            </select>
-          </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label">Role</label>
+          <select id="staff-role" class="input">
+            <option value="scanner">Scanner (validate only)</option>
+            <option value="supervisor">Supervisor (validate + view reports)</option>
+          </select>
         </div>
-        <div id="staff-list" style="max-height:460px; overflow-y:auto;">
-          <div class="loading-placeholder"><div class="spinner"></div></div>
+        <div class="form-field">
+          <label class="form-label">Assign to Event <span style="color:var(--coral);">*</span></label>
+          <select id="staff-event-assign" class="input">
+            <option value="">Select event…</option>
+          </select>
+          <span class="field-error" id="staff-event-err"></span>
         </div>
       </div>
+      <div class="form-field">
+        <label class="form-label">Temporary PIN (4–8 digits)</label>
+        <input type="text" id="staff-pin" class="input" placeholder="1234" maxlength="8" inputmode="numeric" pattern="[0-9]*">
+        <p style="font-size:0.72rem; color:var(--muted); margin-top:0.25rem;">Staff use this PIN to log into the validation interface.</p>
+      </div>
+      <div style="display:flex; gap:0.75rem;">
+        <button class="btn btn-primary" style="flex:1; justify-content:center;" onclick="app.createStaffMember()">
+          <i class="fas fa-user-plus"></i> Create Staff Account
+        </button>
+        <button type="button" class="btn btn-ghost" onclick="app.closeAllModals()">Cancel</button>
+      </div>
+      <div id="staff-create-status" class="status-msg" style="display:none;"></div>
     </div>
   </div>
 </div>
@@ -925,10 +934,11 @@
      ═══════════════════════════════════════════════════════════ -->
 <div id="checkin-log-modal" class="modal" role="dialog" aria-modal="true">
   <div class="modal-backdrop"></div>
-  <div class="modal-box wide">
+  <div class="modal-box wider">
     <div class="modal-header">
-      <h3 class="modal-title">
-        <i class="fas fa-list-check" style="color:var(--teal);"></i> Check-in Activity Log
+      <h3 class="modal-title with-count">
+        <span><i class="fas fa-list-check" style="color:var(--teal);"></i> Check-in Activity Log</span>
+        <span class="count-chip" id="checkin-log-count"></span>
       </h3>
       <button class="modal-close" aria-label="Close">&times;</button>
     </div>
@@ -940,10 +950,18 @@
         </select>
       </div>
       <div class="filter-group">
-        <label class="filter-label"><i class="fas fa-filter"></i> Validated By</label>
-        <select id="checkin-log-staff-filter" class="filter-input" onchange="app.loadCheckinLog()">
+        <label class="filter-label"><i class="fas fa-user-check"></i> Scanned By</label>
+        <select id="checkin-log-staff-filter" class="filter-input" onchange="app.renderCheckinLog()">
           <option value="">Anyone</option>
-          <option value="organizer">Organizer (me)</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label class="filter-label"><i class="fas fa-filter"></i> Result</label>
+        <select id="checkin-log-result-filter" class="filter-input" onchange="app.renderCheckinLog()">
+          <option value="">All results</option>
+          <option value="valid">Valid</option>
+          <option value="already_used">Already used</option>
+          <option value="invalid">Invalid / other</option>
         </select>
       </div>
       <div class="filter-actions">
@@ -960,13 +978,14 @@
           <th>Buyer</th>
           <th>Event</th>
           <th>Type</th>
-          <th>Validated At</th>
-          <th>Validated By</th>
+          <th>Scanned At</th>
+          <th>Scanned By</th>
           <th>Method</th>
+          <th>Result</th>
         </tr>
         </thead>
         <tbody id="checkin-log-tbody">
-        <tr><td colspan="7" class="table-empty">Select an event to load log</td></tr>
+        <tr><td colspan="8" class="table-empty">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -1460,6 +1479,7 @@
     <div style="padding:0.75rem 1rem; background:var(--bg-3); border:1px solid var(--border); border-radius:var(--radius); margin-bottom:1.25rem;">
       <div style="font-size:0.72rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:0.3rem;">Ticket</div>
       <div id="refund-ticket-info" style="font-size:0.88rem; color:var(--bright); font-weight:600;"></div>
+      <div id="refund-amount-line" style="font-size:0.8rem; color:var(--dim); margin-top:0.35rem;"></div>
     </div>
     <input type="hidden" id="refund-ticket-id">
     <form class="form" onsubmit="app.submitRefundRequest(event)">
@@ -1478,10 +1498,6 @@
       <div class="form-field">
         <label class="form-label">Additional Details</label>
         <textarea id="refund-reason-text" class="input" rows="3" placeholder="Please provide more details…" required></textarea>
-      </div>
-      <div class="form-field">
-        <label class="form-label">Refund Amount (leave blank for full refund)</label>
-        <input type="number" id="refund-amount" class="input" placeholder="e.g. 50.00" min="0" step="0.01">
       </div>
       <button type="submit" class="btn btn-coral btn-block"><i class="fas fa-paper-plane"></i> Submit Refund Request</button>
     </form>
@@ -1510,55 +1526,84 @@
   </div>
 </div>
 
-<!-- COUPON MANAGER -->
-<div id="coupons-modal" class="modal" role="dialog" aria-modal="true">
+<!-- COUPON MANAGER (list) -->
+<div id="coupons-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="coupons-title">
   <div class="modal-backdrop"></div>
   <div class="modal-box wide">
     <div class="modal-header">
-      <h3 class="modal-title"><i class="fas fa-tag" style="color:var(--teal);"></i> Coupon / Promo Codes</h3>
+      <h3 class="modal-title with-count" id="coupons-title">
+        <span><i class="fas fa-tag" style="color:var(--teal);"></i> My Codes</span>
+        <span class="count-chip" id="coupons-count"></span>
+      </h3>
+      <div class="modal-header-actions">
+        <button type="button" class="icon-btn icon-btn-primary" onclick="app.openCouponCreateModal()" title="Create a new code" aria-label="Create a new code"><i class="fas fa-plus"></i></button>
+        <button class="modal-close" aria-label="Close">&times;</button>
+      </div>
+    </div>
+    <div class="list-toolbar">
+      <input type="text" id="coupon-search" class="filter-input" placeholder="Search codes…" oninput="app.renderCoupons()">
+      <select id="coupon-status-filter" class="filter-input" onchange="app.renderCoupons()">
+        <option value="all">All status</option>
+        <option value="active">Active</option>
+        <option value="expired">Expired</option>
+        <option value="used_up">Used up</option>
+      </select>
+      <select id="coupon-type-filter" class="filter-input" onchange="app.renderCoupons()">
+        <option value="all">All types</option>
+        <option value="percentage">Percentage</option>
+        <option value="fixed">Fixed amount</option>
+      </select>
+      <select id="coupon-event-filter" class="filter-input" onchange="app.renderCoupons()">
+        <option value="all">All events</option>
+      </select>
+    </div>
+    <div id="coupons-list" class="manage-list"></div>
+  </div>
+</div>
+
+<!-- COUPON CREATE (opened from the + icon) -->
+<div id="coupon-create-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="coupon-create-title">
+  <div class="modal-backdrop"></div>
+  <div class="modal-box" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="coupon-create-title"><i class="fas fa-plus-circle" style="color:var(--teal);"></i> New Code</h3>
       <button class="modal-close" aria-label="Close">&times;</button>
     </div>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
-      <div>
-        <h4 style="font-family:'Syne',sans-serif; font-size:1rem; color:var(--bright); margin-bottom:1rem;">Create New Code</h4>
-        <form class="form" onsubmit="app.createCoupon(event)">
-          <div class="form-field">
-            <label class="form-label">Code <span style="color:var(--coral);">*</span></label>
-            <div style="display:flex; gap:0.5rem;">
-              <input type="text" id="coupon-code" class="input" placeholder="e.g. SAVE20" style="text-transform:uppercase;" required>
-              <button type="button" class="btn btn-ghost" onclick="app.generateCouponCode()" style="padding:0.55rem 0.8rem;"><i class="fas fa-dice"></i></button>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-field">
-              <label class="form-label">Discount Type</label>
-              <select id="coupon-type" class="input" required>
-                <option value="percentage">Percentage (%)</option>
-                <option value="fixed">Fixed Amount (₵)</option>
-              </select>
-            </div>
-            <div class="form-field">
-              <label class="form-label">Discount Value</label>
-              <input type="number" id="coupon-value" class="input" placeholder="20" min="1" required>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-field"><label class="form-label">Expiry Date</label><input type="date" id="coupon-expiry" class="input" required></div>
-            <div class="form-field"><label class="form-label">Usage Limit</label><input type="number" id="coupon-limit" class="input" placeholder="100" min="1"></div>
-          </div>
-          <div class="form-field">
-            <label class="form-label">Applicable Events (optional)</label>
-            <select id="coupon-event" class="input"><option value="">All my events</option></select>
-          </div>
-          <button type="submit" class="btn btn-primary btn-block"><i class="fas fa-plus"></i> Create Code</button>
-          <div id="coupon-create-status" class="status-msg" style="display:none; margin-top:0.5rem;"></div>
-        </form>
+    <form class="form" onsubmit="app.createCoupon(event)">
+      <div class="form-field">
+        <label class="form-label">Code <span style="color:var(--coral);">*</span></label>
+        <div style="display:flex; gap:0.5rem;">
+          <input type="text" id="coupon-code" class="input" placeholder="e.g. SAVE20" style="text-transform:uppercase;" required>
+          <button type="button" class="btn btn-ghost" onclick="app.generateCouponCode()" title="Generate a random code" style="padding:0.55rem 0.8rem;"><i class="fas fa-dice"></i></button>
+        </div>
       </div>
-      <div>
-        <h4 style="font-family:'Syne',sans-serif; font-size:1rem; color:var(--bright); margin-bottom:1rem;">My Codes</h4>
-        <div id="coupons-list" style="max-height:420px; overflow-y:auto;"></div>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label">Discount Type</label>
+          <select id="coupon-type" class="input" required>
+            <option value="percentage">Percentage (%)</option>
+            <option value="fixed">Fixed Amount (₵)</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Discount Value</label>
+          <input type="number" id="coupon-value" class="input" placeholder="20" min="1" required>
+        </div>
       </div>
-    </div>
+      <div class="form-row">
+        <div class="form-field"><label class="form-label">Expiry Date</label><input type="date" id="coupon-expiry" class="input" required></div>
+        <div class="form-field"><label class="form-label">Usage Limit</label><input type="number" id="coupon-limit" class="input" placeholder="100" min="1"></div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Applicable Events (optional)</label>
+        <select id="coupon-event" class="input"><option value="">All my events</option></select>
+      </div>
+      <div style="display:flex; gap:0.75rem;">
+        <button type="submit" class="btn btn-primary" style="flex:1; justify-content:center;"><i class="fas fa-plus"></i> Create Code</button>
+        <button type="button" class="btn btn-ghost" onclick="app.closeAllModals()">Cancel</button>
+      </div>
+      <div id="coupon-create-status" class="status-msg" style="display:none;"></div>
+    </form>
   </div>
 </div>
 

@@ -92,12 +92,14 @@ exports.deleteCoupon = async (req, res, next) => {
   try {
     const { id } = req.params;
     const isAdmin = req.user.role === 'admin';
-    const before = await Coupon.findById(id).select('code eventId').lean();
-    await couponService.deleteCoupon(id, req.user.id, isAdmin);
-    logService.audit(req.user.email, 'delete_coupon', before?.code || id, {
-      type: 'event', adminId: req.user.id, couponId: id, eventId: before?.eventId, ...ctx(req),
+
+    const deleted = await couponService.deleteCoupon(id, req.user.id, isAdmin);
+
+    logService.audit(req.user.email, 'delete_coupon', deleted.code, {
+      type: 'event', adminId: req.user.id, couponId: id, eventId: deleted.eventId, ...ctx(req),
     });
-    res.status(204).send();
+
+    res.status(200).json({ ok: true, id });
   } catch (err) {
     next(err);
   }

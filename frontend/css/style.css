@@ -1356,4 +1356,62 @@ body { transition: background 0.25s var(--ease), color 0.25s var(--ease); }
 }
 .calendar-option:hover { border-color: var(--teal); background: var(--teal-glow); }
 .calendar-option i { width: 20px; text-align: center; color: var(--teal); font-size: 1.05rem; }
-@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* ============================================================
+   MANAGEMENT MODALS (coupons, staff, check-in log)
+============================================================ */
+.modal-box.wider { max-width: 1040px; }
+.modal-title.with-count { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.count-chip {
+  font-family: 'JetBrains Mono', monospace; font-size: 0.62rem; letter-spacing: 0.06em;
+  padding: 0.2rem 0.55rem; border-radius: 100px; color: var(--muted);
+  background: var(--bg-3); border: 1px solid var(--border);
+}
+.count-chip:empty { display: none; }
+.modal-header-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+.modal-header-actions .modal-close { margin-left: 0.25rem; }
+
+.icon-btn {
+  width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid var(--border-2); color: var(--dim);
+  cursor: pointer; font-size: 0.85rem; transition: all 0.2s var(--ease);
+}
+.icon-btn:hover { color: var(--teal); border-color: var(--teal); background: var(--teal-glow); }
+.icon-btn-primary { background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
+.icon-btn-primary:hover { background: var(--teal-d); border-color: var(--teal-d); color: var(--on-teal); transform: scale(1.08); }
+.icon-btn-danger:hover { color: var(--coral); border-color: var(--coral); background: var(--coral-glow); }
+.icon-btn-sm { width: 30px; height: 30px; font-size: 0.72rem; }
+
+.list-toolbar { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.list-toolbar .filter-input { width: auto; flex: 1 1 140px; min-width: 120px; }
+.list-toolbar input.filter-input { flex: 2 1 200px; }
+
+.manage-list { max-height: 55vh; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; padding-right: 2px; }
+.manage-item {
+  display: flex; align-items: center; gap: 0.85rem; padding: 0.85rem 1rem;
+  background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius);
+  transition: border-color 0.2s;
+}
+.manage-item:hover { border-color: var(--border-2); }
+.manage-item-icon {
+  width: 36px; height: 36px; border-radius: 0.6rem; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--teal-glow); color: var(--teal);
+}
+.manage-item-body { flex: 1; min-width: 0; }
+.manage-item-side { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.manage-empty { text-align: center; padding: 2.5rem 1rem; color: var(--muted); font-size: 0.84rem; }
+.manage-empty i { display: block; font-size: 1.5rem; margin-bottom: 0.6rem; opacity: 0.35; }
+
+.coupon-badge.used-up { background: rgba(251,191,36,0.1); color: var(--gold); border: 1px solid rgba(251,191,36,0.25); }
+.pill { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 0.18rem 0.5rem; border-radius: 100px; white-space: nowrap; }
+.pill-ok   { background: rgba(110,231,183,0.1); color: var(--mint);  border: 1px solid rgba(110,231,183,0.25); }
+.pill-warn { background: rgba(251,191,36,0.1);  color: var(--gold);  border: 1px solid rgba(251,191,36,0.25); }
+.pill-bad  { background: rgba(255,107,107,0.1); color: var(--coral); border: 1px solid rgba(255,107,107,0.25); }
+.pill-info { background: rgba(125,211,252,0.12); color: var(--sky);  border: 1px solid rgba(125,211,252,0.25); }
+
+@media (max-width: 600px) {
+  .manage-item { flex-wrap: wrap; }
+  .manage-item-side { width: 100%; justify-content: flex-start; }
+}
