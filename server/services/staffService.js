@@ -215,6 +215,7 @@ class StaffService {
         staffId:       staffId     || null,
         scannedByName: staffName   || 'organizer',
         method:        method      || 'manual',
+        eventTitle: ev?.title || null,
         result,
         device:        device      || null,
         ipAddress:     ip          || null,
