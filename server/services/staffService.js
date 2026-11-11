@@ -253,6 +253,7 @@ class StaffService {
       id:          l._id.toString(),
       ticketId:    l.ticketId,
       eventId:     l.eventId?.toString(),
+      eventTitle:  l.eventTitle || null,
       buyerName:   l.buyerName,
       buyerEmail:  l.buyerEmail,
       ticketType:  l.ticketType,
