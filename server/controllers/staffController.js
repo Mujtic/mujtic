@@ -88,13 +88,14 @@ exports.deleteStaff = async (req, res, next) => {
     const actor = resolveActor(req);
     if (actor.isStaff) throw new AppError('Staff cannot delete staff accounts', 403);
 
-    // Read the name first: it is gone once the staff member is deleted
     const before = await staffService.getStaff(req.params.id, actor.userId);
     await staffService.deleteStaff(req.params.id, actor.userId);
+
     logService.audit(actor.email, 'delete_staff', before?.name || req.params.id, {
       type: 'danger', adminId: actor.userId, staffId: req.params.id, ...ctx(req),
     });
-    res.status(204).send();
+
+    res.status(200).json({ ok: true, id: req.params.id });   // ← 200 + body
   } catch (err) { next(err); }
 };
 
@@ -132,7 +133,7 @@ exports.validateTicket = async (req, res, next) => {
       // Staff scanning: their Staff._id. Organizer scanning: whatever staffId
       // the organizer passes (for delegating attribution), or null.
       staffId:     actor.isStaff ? actor.staffId : (req.body?.staffId || null),
-      staffName:   actor.isStaff ? actor.staffCode : 'organizer',
+      staffName: actor.isStaff ? (actor.name || actor.staffCode) : 'organizer',
       method:      req.body?.method || 'manual',
       device:      req.headers['user-agent'] || null,
       ip:          req.ip,

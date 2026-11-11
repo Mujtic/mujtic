@@ -367,6 +367,7 @@ class StaffService {
       {
         id:          matched._id.toString(),
         staffId:     matched.staffId,
+        name:        matched.name,
         role:        matched.role,
         organizerId: matched.organizerId.toString(),
         eventId:     matched.eventId.toString(),
