@@ -44,14 +44,49 @@ function renderReports() {
   // ── platform statistics ──
   const totalRevenue = sales.reduce((s,t) => s + ticketRevenue(t), 0);
   const ticketCount  = sales.reduce((s,t) => s + ticketQty(t), 0);
-  const feePct       = Number(platformFeePercent);
 
   setText('avg-ticket-price',  `₵${ticketCount > 0 ? (totalRevenue/ticketCount).toFixed(2) : '0.00'}`);
   setText('avg-event-revenue', `₵${events.length > 0 ? (totalRevenue/events.length).toFixed(2) : '0.00'}`);
   setText('total-cancelled',   events.filter(e => e.isCancelled).length);
-  setText('platform-fee',      Number.isFinite(feePct)
-    ? `₵${(totalRevenue * (feePct/100)).toFixed(2)} (${feePct}%)`
-    : '—');
+
+  // Platform fee — full breakdown. The dashboard shows the same total with
+  // the same `· 3% + ₵5 floor` suffix; this card adds the split and the
+  // effective collection rate so an admin can reconcile against payouts.
+  //
+  //   Organizer-side → ticketPlatformFee per ticket (deducted from payouts)
+  //   Buyer-side     → ticketProcessingFee per ticket (added at checkout)
+  //   Configured     → what's set in Settings (the headline suffix)
+  //   Effective      → collected / face value, so floors and legacy rates
+  //                    are visible instead of hidden
+  const feeEl = document.getElementById('platform-fee');
+  if (feeEl) {
+    const org  = stats.organizerFeeTotal || 0;
+    const buy  = stats.buyerFeeTotal     || 0;
+    const eff  = stats.effectiveFeeRate  || 0;
+    const pct  = Number(platformFeePercent);
+    const flr  = Number(platformFeeFloor) || 0;
+    const rateTx = Number.isFinite(pct)
+      ? (flr > 0 ? `${pct}% + ₵${flr} floor` : `${pct}%`)
+      : '';
+
+    feeEl.innerHTML = `
+      <div style="font-size:1.5rem;font-weight:700;color:#10b981;line-height:1.1;">
+        ₵${(org + buy).toFixed(2)}${rateTx ? `<span style="font-size:0.85rem;font-weight:500;color:#94a3b8;margin-left:0.4rem;">· ${rateTx}</span>` : ''}
+      </div>
+      <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.5rem;line-height:1.7;">
+        <div>Organizer-side: <strong style="color:#818cf8;">₵${org.toFixed(2)}</strong></div>
+        <div>Buyer-side: <strong style="color:#22d3ee;">₵${buy.toFixed(2)}</strong></div>
+        <div style="margin-top:0.3rem;padding-top:0.3rem;border-top:1px solid #334155;">
+          Effective: <strong style="color:#f1f5f9;">${eff.toFixed(2)}%</strong>
+        </div>
+      </div>`;
+    feeEl.title =
+      `Organizer-side: ₵${org.toFixed(2)}\n` +
+      `Buyer-side:     ₵${buy.toFixed(2)}\n` +
+      `Effective:      ${eff.toFixed(2)}% of face value\n` +
+      `Configured:     ${Number.isFinite(pct) ? pct + '%' : '—'}` +
+      (flr > 0 ? ` + ₵${flr} floor` : '');
+  }
 
   // refunds approved or paid; show how much of it is still waiting to be paid out
   const refunded = stats.totalRefunded || 0;

@@ -230,8 +230,8 @@
             <span id="stat-avg-revenue">₵0.00</span>
           </div>
           <div style="display:flex; justify-content:space-between; padding:0.75rem 0;">
-            <span style="color:#94a3b8;"><i class="fa-solid fa-percent" style="margin-right:0.4rem;"></i>Platform Fee</span>
-            <span id="stat-platform-fee" style="color:#10b981;">₵0.00 (10%)</span>
+            <span style="color:#94a3b8;"><i class="fa-solid fa-percent" style="margin-right:0.4rem;"></i>Platform Income</span>
+            <span id="stat-platform-fee" style="color:#10b981;">₵0.00</span>
           </div>
         </div>
       </div>
@@ -917,8 +917,8 @@
             <p style="font-size:1.5rem; font-weight:700; color:#fb923c;" id="total-cancelled">0</p>
           </div>
           <div>
-            <p style="color:#94a3b8; font-size:0.875rem; margin-bottom:0.25rem;">Platform Fee</p>
-            <p style="font-size:1.5rem; font-weight:700; color:#10b981;" id="platform-fee">₵0.00</p>
+            <p style="color:#94a3b8; font-size:0.875rem; margin-bottom:0.25rem;">Platform Income</p>
+            <p style="font-weight:700; color:#10b981;" id="platform-fee">₵0.00</p>
           </div>
           <div>
             <p style="color:#94a3b8; font-size:0.875rem; margin-bottom:0.25rem;">Total Refunded</p>
@@ -1723,6 +1723,10 @@
                 onclick="switchSettingsTab('platform')">
           <i class="fa-solid fa-percent"></i> Platform Fees
         </button>
+        <button class="settings-tab" data-tab="processing" role="tab" aria-selected="false"
+                onclick="switchSettingsTab('processing')">
+          <i class="fa-solid fa-credit-card"></i> Processing Fee
+        </button>
       </div>
 
       <!-- Notifications -->
@@ -1750,12 +1754,10 @@
         </div>
       </div>
 
-      <!-- Platform Fees -->
+      <!-- Platform Fees (organizer-side) -->
       <div id="settings-panel-platform" class="settings-panel" role="tabpanel">
-
-        <!-- ── Organizer-side: deducted from payouts ──────────────── -->
-        <p style="font-size:0.7rem; color:#475569; text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin:0.25rem 0 0.5rem;">
-          <i class="fa-solid fa-user-tie" style="margin-right:0.35rem;"></i>Organizer-side (deducted from payouts)
+        <p class="settings-section-label">
+          <i class="fa-solid fa-user-tie"></i>Organizer-side (deducted from payouts)
         </p>
 
         <div class="settings-row">
@@ -1782,9 +1784,27 @@
           </div>
         </div>
 
-        <!-- ── Buyer-side: added at checkout ───────────────────────── -->
-        <p style="font-size:0.7rem; color:#475569; text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin:1.25rem 0 0.5rem;">
-          <i class="fa-solid fa-user" style="margin-right:0.35rem;"></i>Buyer-side (added at checkout)
+        <p class="settings-section-label" style="margin-top:1.25rem;">
+          <i class="fa-solid fa-rotate-left"></i>Refunds
+        </p>
+
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-title">Refund Deadline</span>
+            <span class="settings-row-hint">Days before the event after which a refund cannot be requested</span>
+          </div>
+          <div class="settings-row-control">
+            <input type="number" class="settings-input settings-input--compact"
+                   id="refund-deadline-setting" min="0" max="365" step="1" value="7">
+            <span class="settings-row-unit">days</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Processing Fee (buyer-side) -->
+      <div id="settings-panel-processing" class="settings-panel" role="tabpanel">
+        <p class="settings-section-label">
+          <i class="fa-solid fa-user"></i>Buyer-side (added at checkout)
         </p>
 
         <div class="settings-row">
@@ -1811,29 +1831,22 @@
           </div>
         </div>
 
-        <!-- ── Refunds ────────────────────────────────────────────── -->
-        <div class="settings-row" style="margin-top:0.5rem;">
-          <div class="settings-row-info">
-            <span class="settings-row-title">Refund Deadline</span>
-            <span class="settings-row-hint">Days before the event after which a refund cannot be requested</span>
-          </div>
-          <div class="settings-row-control">
-            <input type="number" class="settings-input settings-input--compact"
-                   id="refund-deadline-setting" min="0" max="365" step="1" value="7">
-            <span class="settings-row-unit">days</span>
-          </div>
-        </div>
-
         <div class="settings-updated-note">
-          <i class="fa-solid fa-clock"></i>
-          Last updated: <span id="settings-updated-at">—</span>
+          <i class="fa-solid fa-circle-info"></i>
+          The processing fee is charged to the buyer on top of the ticket price and is
+          separate from the platform fee deducted from the organizer's payout.
         </div>
+      </div>
+
+      <!-- Shared footer note (visible on every tab) -->
+      <div class="settings-updated-note">
+        <i class="fa-solid fa-clock"></i>
+        Last updated: <span id="settings-updated-at">—</span>
       </div>
 
       <button class="btn btn-primary" style="width:100%; margin-top:1.25rem;" onclick="saveSettings()">
         <i class="fa-solid fa-floppy-disk"></i> Save Settings
       </button>
-
     </div>
   </div>
 </div>

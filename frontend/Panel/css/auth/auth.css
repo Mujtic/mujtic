@@ -32,6 +32,27 @@
   border-bottom-color: var(--color-brand);
 }
 
+/* Section label inside a settings panel */
+.settings-section-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.7rem;
+  font-weight: var(--fw-semibold, 600);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Keep 3 tabs usable on small screens */
+.settings-tabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.settings-tabs::-webkit-scrollbar { display: none; }
+.settings-tab { white-space: nowrap; }
+
 /* --- Panels --- */
 .settings-panel         { display: none; }
 .settings-panel.active  { display: block; }

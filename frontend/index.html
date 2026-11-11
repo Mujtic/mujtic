@@ -220,6 +220,11 @@
   </div>
 </section>
 
+<!-- ===== EVENT LANDING PAGE ===== -->
+<section class="section" id="event-page" style="padding-top:calc(64px + 2.5rem);">
+  <div id="event-page-content"></div>
+</section>
+
 <!-- ===== HELP CENTER ===== -->
 <section class="section" id="help-page" style="padding-top:calc(64px + 2.5rem);">
   <div class="section-head">
@@ -668,7 +673,7 @@
 
 <!-- ===== MODALS ===== -->
 
-<!-- Event Detail -->
+<!-- Event Detail (legacy modal, no longer used: events open on their own landing page) -->
 <div id="event-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="event-modal-title">
   <div class="modal-backdrop"></div>
   <div class="modal-box wide">
@@ -760,6 +765,23 @@
       <div style="display:flex; gap:0.5rem; margin-top:0.75rem; flex-direction:column;">
         <button class="btn btn-primary btn-block" id="download-ticket-pdf"><i class="fas fa-file-pdf"></i> Download PDF Ticket</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add to Calendar (opened from Purchase History) -->
+<div id="calendar-modal" class="modal" role="dialog" aria-modal="true">
+  <div class="modal-backdrop"></div>
+  <div class="modal-box" style="max-width:420px;">
+    <div class="modal-header">
+      <h3 class="modal-title"><i class="fas fa-calendar-plus" style="color:var(--teal);"></i> Add to Calendar</h3>
+      <button class="modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="transfer-ticket-info" id="calendar-event-info"></div>
+    <div class="calendar-options">
+      <button type="button" class="calendar-option" onclick="app.addToGoogleCalendar()"><i class="fab fa-google"></i> Google</button>
+      <button type="button" class="calendar-option" onclick="app.addToICal()"><i class="fas fa-calendar-alt"></i> iCal / Apple</button>
+      <button type="button" class="calendar-option" onclick="app.addToOutlook()"><i class="fab fa-microsoft"></i> Outlook</button>
     </div>
   </div>
 </div>
@@ -1084,8 +1106,10 @@
       <div class="form-field">
         <label class="form-label">Password</label>
         <input type="password" id="password" placeholder="••••••••" class="input" required>
-        <div class="strength-track"><div class="strength-fill" id="strength-bar"></div></div>
-        <div class="strength-hint" id="strength-text"></div>
+        <div id="auth-strength" style="display:none;">
+          <div class="strength-track"><div class="strength-fill" id="strength-bar"></div></div>
+          <div class="strength-hint" id="strength-text"></div>
+        </div>
         <span class="field-error" id="password-err"></span>
       </div>
       <div id="register-fields" style="display:none;">

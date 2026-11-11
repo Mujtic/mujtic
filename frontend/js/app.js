@@ -435,6 +435,9 @@ class GlycrApp {
       case 'profile':
         await this.loadProfile();
         break;
+      case 'event-page':
+        if (this.currentEventId) await this.showEventPage(this.currentEventId, true);
+        break;
       case 'home':
         this.currentEventsPage = 1;
         this.hasMoreEvents = true;
@@ -444,7 +447,7 @@ class GlycrApp {
   }
 
   getActiveSection() {
-    const sections = ['profile', 'dashboard', 'payout-page', 'myevents-page', 'report-page', 'home'];
+    const sections = ['event-page', 'profile', 'dashboard', 'payout-page', 'myevents-page', 'report-page', 'home'];
     for (let s of sections) {
       const el = document.getElementById(s);
       if (el && el.style.display === 'block') return s;
@@ -879,6 +882,8 @@ class GlycrApp {
     title.textContent = isLogin ? 'Create Account' : 'Sign In';
     document.getElementById('auth-btn').textContent = isLogin ? 'Create Account' : 'Sign In';
     document.getElementById('register-fields').style.display = isLogin ? 'block' : 'none';
+    const strengthWrap = document.getElementById('auth-strength');
+    if (strengthWrap) strengthWrap.style.display = isLogin ? 'block' : 'none';
     document.getElementById('toggle-auth').innerHTML = isLogin
       ? 'Already have an account? <a href="#">Sign in</a>'
       : 'Don\'t have an account? <a href="#">Create one</a>';
@@ -1163,6 +1168,7 @@ class GlycrApp {
       const used   = t.status === 'used' || !!t.validated;
 
       const canView     = !voided && !used;
+      const canCalendar = !voided && !used && evDate && evDate > now;
       const canRefund   = !voided && !used && evDate && evDate > now;
       const canTransfer = !voided && !used && evDate && evDate > now && !t.transferred;
       const canReview   = !voided && isPast && !t.reviewed;
@@ -1180,8 +1186,8 @@ class GlycrApp {
     <div class="purchase-item-meta">${esc(String(t.ticketType).toUpperCase())} · ${t.price === 0 ? 'Free' : esc(sym) + esc(t.price)} · ${esc(new Date(t.purchasedAt).toLocaleDateString())}${statusLabel ? ` · <span style="color:${statusColor};">${esc(statusLabel)}</span>` : ''}</div>
   </div>
   <div class="purchase-item-actions">
-    ${canView ? `<button class="btn btn-ghost btn-sm" data-ui-action="view-ticket" ${d}><i class="fas fa-qrcode"></i> View</button>
-    <button class="btn btn-ghost btn-sm" data-ui-action="download-ticket" ${d}><i class="fas fa-file-pdf"></i> PDF</button>` : ''}
+    ${canCalendar ? `<button class="btn btn-ghost btn-sm" data-ui-action="calendar" ${d}><i class="fas fa-calendar-plus"></i> Calendar</button>` : ''}
+    ${canView ? `<button class="btn btn-ghost btn-sm" data-ui-action="download-ticket" ${d}><i class="fas fa-file-pdf"></i> PDF</button>` : ''}
     ${canTransfer ? `<button class="btn btn-ghost btn-sm" style="color:var(--sky); border-color:rgba(125,211,252,0.3);" data-ui-action="transfer" ${d}><i class="fas fa-paper-plane"></i> Transfer</button>` : ''}
     ${canRefund   ? `<button class="btn btn-ghost btn-sm" style="color:var(--coral); border-color:rgba(255,107,107,0.3);" data-ui-action="refund" ${d}><i class="fas fa-undo"></i> Refund</button>` : ''}
     ${canReview   ? `<button class="btn btn-ghost btn-sm" style="color:var(--gold); border-color:rgba(251,191,36,0.3);" data-ui-action="review" ${d}><i class="fas fa-star"></i> Review</button>` : ''}
@@ -1460,80 +1466,157 @@ class GlycrApp {
     </div>`;
   }
 
-  // ─── Event Detail ─────────────────────────────────────────
-  async showEventDetail(id) {
+  // ─── Event Detail → now a shareable landing page (#event-<id>) ───
+  showEventDetail(id) {
+    if (!id) return;
+    if (location.hash === `#event-${id}`) this._routeFromHash();
+    else location.hash = `event-${id}`;   // triggers hashchange -> showEventPage
+  }
+
+  getEventUrl(id) { return `${location.origin}${location.pathname}#event-${id}`; }
+
+  shareEvent() {
+    const id = this.currentEventId; if (!id) return;
+    const url   = this.getEventUrl(id);
+    const title = document.querySelector('.ep-title')?.textContent || 'this event';
+    if (navigator.share) navigator.share({ title, text: `Check out ${title} on Glycr!`, url }).catch(() => {});
+    else this.copyEventLink();
+  }
+
+  copyEventLink() {
+    const id = this.currentEventId; if (!id) return;
+    navigator.clipboard.writeText(this.getEventUrl(id))
+      .then(() => this.showSuccess('Event link copied'))
+      .catch(() => this.showError('Could not copy the link'));
+  }
+
+  _routeFromHash(hash = location.hash) {
+    const m = /^#event-([\w-]+)$/.exec(hash);
+    if (m) this.showEventPage(m[1]);
+  }
+
+  _setMeta(prop, content) {
+    let el = document.querySelector(`meta[property="${prop}"]`);
+    if (!el) { el = document.createElement('meta'); el.setAttribute('property', prop); document.head.appendChild(el); }
+    el.setAttribute('content', content || '');
+  }
+
+  async showEventPage(id, silent = false) {
+    this.currentEventId = id;
+    const box = document.getElementById('event-page-content');
+    if (!box) return;
+
+    if (!silent) {
+      this.showSection('event-page');
+      if (location.hash !== `#event-${id}`) history.replaceState(null, '', `#event-${id}`);
+      box.innerHTML = '<div class="loading-placeholder"><div class="spinner"></div><p style="color:var(--muted); font-size:0.82rem;">Loading event…</p></div>';
+    }
+
     try {
-      const event = await this.fetchApi(`/events/${id}`);
-      if (event.isCancelled) return this.showToast('This event has been cancelled.');
-      this.currentEventId = id;
+      const event = await this.fetchApi(`/events/${encodeURIComponent(id)}`);
+      if (this.currentEventId !== id) return;          // user navigated away meanwhile
+
       const tt   = this.parseTicketTypes(event.ticketTypes);
       const date = new Date(event.date);
       const sym  = this.getCurrencySymbol(event.currency);
       const icon = this.getCategoryIcon(event.category);
       const cat  = this.getCategoryName(event.category);
-      let locationHtml = `${esc(event.venue)}, ${esc(event.location)}`;
+      const img  = this.getFullImageUrl(event.image);
+
+      let locationHtml = `${esc(event.venue)}, ${esc(event.location || 'Ghana')}`;
       const lat = Number(event.lat), lng = Number(event.lng);
       if (event.lat && event.lng && Number.isFinite(lat) && Number.isFinite(lng)) {
         locationHtml = `<a href="https://maps.google.com/?q=${lat},${lng}" target="_blank" rel="noopener noreferrer" style="color:var(--teal);">${esc(event.address || `${event.venue}, ${event.location}`)} <i class="fas fa-external-link-alt" style="font-size:0.7rem;"></i></a>`;
       }
-      document.getElementById('event-detail').innerHTML = `
-        <div class="detail-hero">
-          <img src="${this.getFullImageUrl(event.image)}" alt="${event.title}" onerror="this.src='https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=900'">
-          <div class="detail-hero-overlay"></div>
-          <span class="detail-cat-badge"><i class="fas ${icon}"></i> ${cat}</span>
-        </div>
-        <h2 class="detail-title" id="event-modal-title">${event.title}</h2>
-        <div class="detail-meta">
-          <span class="detail-meta-item"><i class="fas fa-calendar-alt"></i> ${date.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-          <span class="detail-meta-item"><i class="fas fa-map-marker-alt"></i> ${locationHtml}</span>
-          <span class="detail-meta-item"><i class="fas fa-envelope"></i> <a href="mailto:${event.organizerEmail}" style="color:var(--teal);">${event.organizerEmail}</a></span>
-          <span class="detail-meta-item"><i class="fas fa-phone-alt"></i> ${event.organizerPhone}</span>
-        </div>
-        <p class="detail-desc">${event.description}</p>
-        <p class="tickets-label">Available Tickets</p>`;
 
-      document.getElementById('ticket-benefits').innerHTML = Object.entries(tt).map(([type, data]) => {
-        const avail   = data.capacity - (data.sold || 0);
-        const soldOut = avail <= 0;
-        const price   = this.getTicketPrice(event, type);
-        const isEB    = this.isEarlyBird(event, type);
-        const bens    = this.getTicketBenefits(type);
-        const priceStr = price === 0 ? 'Free' : `${sym}${price}${isEB ? ' (Early Bird)' : ''}`;
+      let ticketsHtml;
+      if (event.isCancelled) {
+        ticketsHtml = '<div class="ep-notice"><i class="fas fa-ban"></i> This event has been cancelled. Ticket holders are being refunded.</div>';
+      } else if (new Date(event.date) < this.currentDate) {
+        ticketsHtml = '<div class="ep-notice"><i class="fas fa-clock"></i> This event has already taken place.</div>';
+      } else {
+        ticketsHtml = Object.entries(tt).map(([type, data]) => {
+          const avail   = data.capacity - (data.sold || 0);
+          const price   = this.getTicketPrice(event, type);
+          const isEB    = this.isEarlyBird(event, type);
+          const bens    = this.getTicketBenefits(type);
+          const priceStr = price === 0 ? 'Free' : `${sym}${price}${isEB ? ' (Early Bird)' : ''}`;
 
-        if (soldOut) {
-          return `<div class="ticket-tier">
+          if (avail <= 0) {
+            return `<div class="ticket-tier">
             <div>
-              <div class="ticket-tier-name">${type.toUpperCase()}</div>
-              <div class="ticket-tier-avail">
-                ${this.renderAvailabilityBar(0, data.capacity)}
-              </div>
-              <div class="ticket-tier-benefits">${bens.join(' · ')}</div>
-              <button class="btn btn-ghost" style="margin-top:0.5rem; font-size:0.75rem;" data-ui-action="waitlist" data-event-id="${esc(event._id)}" data-type="${esc(type)}">
-  <i class="fas fa-clock"></i> Join Waitlist
-</button>
+              <div class="ticket-tier-name">${esc(type.toUpperCase())}</div>
+              <div class="ticket-tier-avail">${this.renderAvailabilityBar(0, data.capacity)}</div>
+              <div class="ticket-tier-benefits">${esc(bens.join(' · '))}</div>
+              <button class="btn btn-ghost" style="margin-top:0.5rem; font-size:0.75rem;" data-ui-action="waitlist" data-event-id="${esc(event._id)}" data-type="${esc(type)}"><i class="fas fa-clock"></i> Join Waitlist</button>
             </div>
             <div class="tier-price sold-out-lbl">Sold Out</div>
           </div>`;
-        }
-
-        return `<div class="ticket-tier" data-type="${type}" data-price="${price}" tabindex="0" role="button" aria-label="Select ${type} ticket at ${priceStr}">
+          }
+          return `<div class="ticket-tier" data-type="${esc(type)}" data-price="${esc(price)}" tabindex="0" role="button" aria-label="Select ${esc(type)} ticket at ${esc(priceStr)}">
           <div>
-            <div class="ticket-tier-name">${type.toUpperCase()}</div>
-            <div class="ticket-tier-avail">
-              ${this.renderAvailabilityBar(avail, data.capacity)}
-            </div>
-            <div class="ticket-tier-benefits">${bens.join(' · ')}</div>
+            <div class="ticket-tier-name">${esc(type.toUpperCase())}</div>
+            <div class="ticket-tier-avail">${this.renderAvailabilityBar(avail, data.capacity)}</div>
+            <div class="ticket-tier-benefits">${esc(bens.join(' · '))}</div>
           </div>
-          <div class="tier-price${price === 0 ? ' free' : ''}">${priceStr}</div>
+          <div class="tier-price${price === 0 ? ' free' : ''}">${esc(priceStr)}</div>
         </div>`;
-      }).join('');
+        }).join('') || '<div class="ep-notice">No tickets available yet.</div>';
+      }
 
-      document.querySelectorAll('.ticket-tier[data-type]').forEach(tier => {
+      box.innerHTML = `
+      <div class="ep-wrap">
+        <a href="#" class="ep-back" id="ep-back-link"><i class="fas fa-arrow-left"></i> All events</a>
+        <div class="ep-hero">
+          <img src="${esc(img)}" alt="${esc(event.title)}" onerror="this.src='https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?w=1200'">
+          <div class="ep-hero-overlay"></div>
+          <span class="detail-cat-badge"><i class="fas ${icon}"></i> ${esc(cat)}</span>
+        </div>
+        <div class="ep-grid">
+          <div class="ep-main">
+            <h1 class="ep-title">${esc(event.title)}</h1>
+            <div class="detail-meta">
+              <span class="detail-meta-item"><i class="fas fa-calendar-alt"></i> ${esc(date.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }))}</span>
+              <span class="detail-meta-item"><i class="fas fa-map-marker-alt"></i> ${locationHtml}</span>
+              ${event.organizerEmail ? `<span class="detail-meta-item"><i class="fas fa-envelope"></i> <a href="mailto:${esc(event.organizerEmail)}" style="color:var(--teal);">${esc(event.organizerEmail)}</a></span>` : ''}
+              ${event.organizerPhone ? `<span class="detail-meta-item"><i class="fas fa-phone-alt"></i> ${esc(event.organizerPhone)}</span>` : ''}
+            </div>
+            <div class="ep-actions">
+              <button class="btn btn-ghost" onclick="app.shareEvent()"><i class="fas fa-share-alt"></i> Share</button>
+              <button class="btn btn-ghost" onclick="app.copyEventLink()"><i class="fas fa-link"></i> Copy link</button>
+            </div>
+            <h3 class="ep-h">About this event</h3>
+            <p class="ep-desc">${esc(event.description)}</p>
+          </div>
+          <aside class="ep-side">
+            <div class="ep-ticket-card">
+              <p class="tickets-label">Tickets</p>
+              ${ticketsHtml}
+            </div>
+          </aside>
+        </div>
+      </div>`;
+
+      box.querySelectorAll('.ticket-tier[data-type]').forEach(tier => {
         tier.addEventListener('click', () => this.selectTicket(tier.dataset.type, parseFloat(tier.dataset.price), event._id));
         tier.addEventListener('keydown', e => { if (e.key === 'Enter') tier.click(); });
       });
-      this.openModal('event-modal');
-    } catch (err) { this.showError(err.message); }
+      box.querySelector('#ep-back-link')?.addEventListener('click', e => { e.preventDefault(); this.showSection('home'); });
+
+      // Tab title + social meta (note: crawlers don't run JS)
+      document.title = `${event.title} — Glycr`;
+      this._setMeta('og:title', event.title);
+      this._setMeta('og:description', (event.description || '').slice(0, 160));
+      this._setMeta('og:image', img);
+      this._setMeta('og:url', this.getEventUrl(id));
+    } catch (err) {
+      if (this.currentEventId !== id) return;
+      box.innerHTML = `<div class="empty-state">
+      <h3>Event not found</h3>
+      <p>${esc(err.message || 'This event may have been removed or is not published yet.')}</p>
+      <button class="btn btn-primary" style="margin-top:1.25rem;" onclick="app.showSection('home')"><i class="fas fa-calendar-alt"></i> Browse events</button>
+    </div>`;
+    }
   }
 
   // ─── Waitlist ─────────────────────────────────────────────
@@ -1825,6 +1908,18 @@ class GlycrApp {
   }
 
   // ─── Calendar Integration ──────────────────────────────────
+  async openCalendarModal(eventId) {
+    try {
+      const ev = this.allEvents.find(e => e._id === eventId) || await this.fetchApi(`/events/${eventId}`);
+      this.lastPurchasedEvent = ev;   // the add-to-calendar helpers read this
+      const when = new Date(ev.date).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      document.getElementById('calendar-event-info').innerHTML =
+        `<strong>${esc(ev.title)}</strong>
+       <div style="font-size:0.75rem; font-weight:400; color:var(--muted); margin-top:0.2rem;">${esc(when)} · ${esc(ev.venue)}</div>`;
+      this.openModal('calendar-modal');
+    } catch (err) { this.showError(err.message || 'Could not load event.'); }
+  }
+
   _buildCalendarDate(dateStr) {
     const d = new Date(dateStr);
     return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
@@ -1967,11 +2062,6 @@ class GlycrApp {
     }
 
   }
-
-
-
-
-
 
   _getQRMatrix(text) {
     try {
@@ -2759,14 +2849,6 @@ class GlycrApp {
     this.showSuccess('Payout report downloaded');
   }
 
-  shareEvent() {
-    const ev = this.allEvents.find(e => e._id === this.currentEventId);
-    if (!ev) return;
-    const url = `${window.location.href.split('#')[0]}#event-${ev._id}`;
-    if (navigator.share) navigator.share({ title: ev.title, text: `Check out ${ev.title} on Glycr!`, url }).catch(() => {});
-    else navigator.clipboard.writeText(url).then(() => this.showSuccess('Event link copied'));
-  }
-
   // ─── Password / Auth Helpers ──────────────────────────────
   showForgotPasswordModal() {
     document.getElementById('forgot-email').value = '';
@@ -3082,6 +3164,7 @@ class GlycrApp {
         const d = ui.dataset;
         switch (d.uiAction) {
           case 'view-ticket':     this.viewTicket(d.ticketId, d.eventId, d.type); break;
+          case 'calendar':        this.openCalendarModal(d.eventId); break;
           case 'download-ticket': this.downloadTicketPDFById(d.ticketId, d.eventId, d.type); break;
           case 'transfer':        this.openTransferModal(d.ticketId, d.title, d.type); break;
           case 'refund':          this.openRefundModal(d.ticketId, d.title, d.type, Number(d.price)); break;
@@ -3781,20 +3864,30 @@ GlycrApp.prototype.loadReportPage = async function () {
 };
 
 // ─────────────────────────────────────────────────────────────
-//  Patch init() to call _bindValidationFeatures
+//  Patch init(): theme, validation features, and #event-<id> deep links
 // ─────────────────────────────────────────────────────────────
 const _origInit = GlycrApp.prototype.init;
 GlycrApp.prototype.init = async function () {
+  const initialHash = location.hash;   // capture BEFORE init: checkAuth() calls showSection() and would discard it
   this.applyTheme(this._getTheme());
   this._watchSystemTheme();
   await _origInit.call(this);
   this._bindValidationFeatures();
 
+  window.addEventListener('hashchange', () => {
+    if (/^#event-/.test(location.hash)) this._routeFromHash();
+    else if (this.getActiveSection() === 'event-page') this.showSection('home');
+  });
+  this._routeFromHash(initialHash);   // deep link wins over the default landing section
 };
 
-// Patch showSection to handle validation-page + stale org data refresh
+// Patch showSection: validation page, stale org data refresh, and clearing the event hash
 const _origShowSection = GlycrApp.prototype.showSection;
 GlycrApp.prototype.showSection = function (section) {
+  if (section !== 'event-page') {
+    if (/^#event-/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
+    document.title = 'Glycr — Event Ticketing';
+  }
   _origShowSection.call(this, section);
   if (section === 'validation-page') this.initValidationPage();
   if (['dashboard', 'payout-page', 'myevents-page', 'report-page'].includes(section)) this._refreshOrgIfStale();
