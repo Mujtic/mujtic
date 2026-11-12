@@ -8,6 +8,7 @@ const logController = require('../controllers/logController');
 const refundController = require('../controllers/refundController');
 const serviceRequestController = require('../controllers/serviceRequestController');
 const featuredController = require('../controllers/featuredController');
+const newsletterController = require('../controllers/newsletterController');
 
 const auth = require('../middleware/auth');
 const { requireAdmin, requireModeratorOrAdmin } = require('../middleware/rbac');
@@ -103,5 +104,14 @@ router.patch('/admin/refunds/:id/complete', auth, requireAdmin, refundController
 
 // ── Featured ──
 router.patch('/admin/events/:id/featured', auth, requireModeratorOrAdmin, featuredController.setFeatured);
+
+
+
+// ── Newsletter subscribers ──
+// Admin-only. GET lists subscribers with optional status/search filters.
+// DELETE removes a subscriber (used for GDPR erasure requests).
+router.get('/admin/newsletter', auth, requireAdmin, newsletterController.listSubscribers);
+router.get('/admin/newsletter/stats', auth, requireAdmin, newsletterController.getStats);
+router.delete('/admin/newsletter/:id', auth, requireAdmin, newsletterController.deleteSubscriber);
 
 module.exports = router;

@@ -7,6 +7,7 @@ const express = require('express');
 const authRoutes           = require('./auth');
 const userRoutes           = require('./users');
 const serviceRequestRoutes = require('./serviceRequests');
+const newsletterRoutes = require('./newsletter');
 const featuredRoutes = require('./featured');
 const eventRoutes          = require('./events');
 const ticketRoutes         = require('./tickets');
@@ -56,6 +57,7 @@ router.use(eventRoutes);
 router.use(ticketRoutes);
 router.use(waitlistRoutes);
 router.use(serviceRequestRoutes);
+router.use(newsletterRoutes);
 // ── Authenticated user scope ──
 // Data scoped to req.user.id — payouts (organizer), settings (self), refunds
 // (self + organizer), analytics (organizer), coupons (organizer), service
