@@ -59,6 +59,18 @@ exports.purchase = async (req, res, next) => {
   }
 };
 
+exports.getEventTickets = async (req, res, next) => {
+  try {
+    const { eventId, ticketType, limit } = req.query;
+    const tickets = await ticketService.getEventTickets(
+      eventId,
+      req.user.isOrganizer ? req.user.id : null,
+      { ticketType, limit: Number(limit) || 5000 }
+    );
+    res.json(tickets);
+  } catch (err) { next(err); }
+};
+
 exports.getMyTickets = async (req, res, next) => {
   try {
     const tickets = await ticketService.getUserTickets(req.user.id);

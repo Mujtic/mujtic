@@ -3947,7 +3947,14 @@ Object.assign(GlycrApp.prototype, {
       let logs = this._asArray(await this.fetchApi(`/tickets/validations?${params}`), 'validations', 'logs', 'data').map(v => this._normScan(v));
       if (eventId) logs = logs.filter(l => !l.evId || l.evId === eventId);
       logs.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
-      await this._ensureEvents(logs.map(l => l.evId));       // so we can show names, not ids
+
+      // Only hydrate events we don't already have a title for. Logs written after
+      // the ScanLog.eventTitle backfill carry the title inline, so no fetch needed.
+      const needHydration = logs
+        .filter(l => !l.raw?.eventTitle && !this._findEvent(l.evId))
+        .map(l => l.evId);
+      if (needHydration.length) await this._ensureEvents(needHydration);
+
       this._checkinLogs = logs;
       this._fillScannerFilter();
       this.renderCheckinLog();

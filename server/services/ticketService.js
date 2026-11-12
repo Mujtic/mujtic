@@ -284,6 +284,7 @@ class TicketService {
     return purchasedTickets;
   }
 
+
   async getUserTickets(userId) {
     if (!userId) throw new AppError('userId is required', 400);
     return Ticket.find({ userId }).populate('eventId', 'title currency');
@@ -435,16 +436,22 @@ class TicketService {
     return refund;
   }
 
-  async getEventTickets(eventId, organizerId = null) {
-    if (!eventId) throw new AppError('eventId is required', 400);
 
+
+
+  async getEventTickets(eventId, organizerId = null, { ticketType, limit = 5000 } = {}) {
+    if (!eventId) throw new AppError('eventId is required', 400);
     if (organizerId) {
       const owns = await Event.exists({ _id: eventId, organizerId });
       if (!owns) throw new AppError('Event not found or not yours', 403);
     }
-
-    return Ticket.find({ eventId }).populate('userId', 'name email');
+    const filter = { eventId };
+    if (ticketType) filter.ticketType = ticketType;
+    return Ticket.find(filter).limit(limit).lean();
   }
 }
+
+
+
 
 module.exports = new TicketService();

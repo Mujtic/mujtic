@@ -34,6 +34,10 @@ router.get('/tickets/validations',
 router.get('/tickets/checkin-stats',
   auth, requireOrganizerOrStaff, staffController.getCheckinStats);
 
+router.get('/tickets',
+  auth, requireOrganizerOrStaff, ticketController.getEventTickets
+);
+
 router.get('/tickets/search',
   auth, requireOrganizerOrStaff, staffController.searchTickets);
 
