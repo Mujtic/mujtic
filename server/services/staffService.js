@@ -206,6 +206,14 @@ class StaffService {
       const ticketRef = ticket?._id || (await Ticket.findOne({ id: ticketId })?.select('_id').lean())?._id;
       if (!ticketRef) return null;
 
+      // If we were handed a staff code (e.g. "SC45ED43F"), swap it for the real name.
+      // staffId is the Staff._id, so the lookup is cheap and indexed.
+      let resolvedName = staffName || 'organizer';
+      if (staffId && /^S[0-9A-F]{8}$/i.test(resolvedName)) {
+        const staffDoc = await Staff.findById(staffId).select('name').lean();
+        if (staffDoc?.name) resolvedName = staffDoc.name;
+      }
+
       const log = new ScanLog({
         ticketId,
         ticketRef,
@@ -213,9 +221,9 @@ class StaffService {
         organizerId,
         scannedById:   scannedById || null,
         staffId:       staffId     || null,
-        scannedByName: staffName   || 'organizer',
+        scannedByName: resolvedName,           // ← now the real name
         method:        method      || 'manual',
-        eventTitle:    event?.title || null,      // ← was: ev?.title || null  (now correct)
+        eventTitle:    event?.title || null,
         result,
         device:        device      || null,
         ipAddress:     ip          || null,
@@ -226,10 +234,7 @@ class StaffService {
       await log.save();
       return log;
     } catch (err) {
-      // Non-fatal — the check-in already succeeded
-      logger.warn('ScanLog write failed (non-fatal)', {
-        ticketId, eventId: eventId?.toString(), err: err.message,
-      });
+      logger.warn('ScanLog write failed (non-fatal)', { ... });
       return null;
     }
   }
