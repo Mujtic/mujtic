@@ -4,6 +4,7 @@ const scanLogSchema = new mongoose.Schema({
   ticketId:    { type: String, required: true },          // Ticket.id (not ObjectId)
   ticketRef:   { type: mongoose.Schema.Types.ObjectId, ref: 'Ticket', required: true },
   eventId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Event',  required: true },
+  eventTitle:  { type: String, default: null },      // ← ADD: snapshot at scan time
   organizerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User',   required: true },
   scannedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User',   default: null }, // organizer
   staffId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Staff',  default: null }, // staff member

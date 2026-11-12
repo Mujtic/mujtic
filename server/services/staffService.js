@@ -147,36 +147,36 @@ class StaffService {
     // Verify organizer owns the event BEFORE doing anything else.
     // Without this, organizer A could theoretically scan organizer B's tickets
     // by passing B's eventId (depending on how the route builds `organizerId`).
-    await this._requireOrganizerEvent(eventId, organizerId);
+    const event = await this._requireOrganizerEvent(eventId, organizerId);   // ← capture
 
     const ticket = await Ticket.findOne({ id: ticketId });
 
     if (!ticket) {
       await this._log({ ticketId, eventId, organizerId, scannedById, staffId, staffName,
-        method, device, ip, result: 'invalid', ticket: null });
+        method, device, ip, result: 'invalid', ticket: null, event });
       return { result: 'invalid', message: 'Ticket not found.' };
     }
 
     if (String(ticket.eventId) !== String(eventId)) {
       await this._log({ ticketId, eventId, organizerId, scannedById, staffId, staffName,
-        method, device, ip, result: 'wrong_event', ticket });
+        method, device, ip, result: 'wrong_event', ticket, event });
       return { result: 'wrong_event', message: 'This ticket is for a different event.' };
     }
 
     // Refunded / refund_pending tickets must NOT be validated
     if (ticket.status === 'refunded' || ticket.refunded) {
       await this._log({ ticketId, eventId, organizerId, scannedById, staffId, staffName,
-        method, device, ip, result: 'refunded', ticket });
+        method, device, ip, result: 'refunded', ticket, event });
       return { result: 'refunded', message: 'This ticket has been refunded and is no longer valid.' };
     }
     if (ticket.status === 'refund_pending') {
       await this._log({ ticketId, eventId, organizerId, scannedById, staffId, staffName,
-        method, device, ip, result: 'refund_pending', ticket });
+        method, device, ip, result: 'refund_pending', ticket, event });
       return { result: 'refund_pending', message: 'This ticket has a pending refund and cannot be used.' };
     }
     if (ticket.status === 'cancelled') {
       await this._log({ ticketId, eventId, organizerId, scannedById, staffId, staffName,
-        method, device, ip, result: 'cancelled', ticket });
+        method, device, ip, result: 'cancelled', ticket, event });
       return { result: 'cancelled', message: 'This ticket has been cancelled.' };
     }
 
@@ -191,17 +191,17 @@ class StaffService {
     if (!updated) {
       // Someone else validated between our read and our update
       await this._log({ ticketId, eventId, organizerId, scannedById, staffId, staffName,
-        method, device, ip, result: 'already_used', ticket });
+        method, device, ip, result: 'already_used', ticket, event });
       return { result: 'already_used', message: 'This ticket has already been used.', ticket };
     }
 
     const log = await this._log({ ticketId, eventId, organizerId, scannedById, staffId, staffName,
-      method, device, ip, result: 'valid', ticket: updated });
+      method, device, ip, result: 'valid', ticket: updated, event });
 
     return { result: 'valid', message: 'Ticket validated successfully.', ticket: updated, scanLog: log };
   }
 
-  async _log({ ticketId, eventId, organizerId, scannedById, staffId, staffName, method, device, ip, result, ticket }) {
+  async _log({ ticketId, eventId, organizerId, scannedById, staffId, staffName, method, device, ip, result, ticket, event }) {
     try {
       const ticketRef = ticket?._id || (await Ticket.findOne({ id: ticketId })?.select('_id').lean())?._id;
       if (!ticketRef) return null;
@@ -215,7 +215,7 @@ class StaffService {
         staffId:       staffId     || null,
         scannedByName: staffName   || 'organizer',
         method:        method      || 'manual',
-        eventTitle: ev?.title || null,
+        eventTitle:    event?.title || null,      // ← was: ev?.title || null  (now correct)
         result,
         device:        device      || null,
         ipAddress:     ip          || null,
