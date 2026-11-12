@@ -1,6 +1,7 @@
 // ===============================================
 // MESSAGE MANAGEMENT
 // ===============================================
+let newsletterSubscribedCount = 0;
 
 const BROADCAST_TEMPLATES = {
   maintenance: {
@@ -32,6 +33,7 @@ function getBroadcastRecipientCount() {
   if (aud === 'organizers') return users.filter(u => u.role === 'organizer').length;
   if (aud === 'customers')  return users.filter(u => u.role === 'customer').length;
   if (aud === 'both')       return users.filter(u => u.role === 'organizer' || u.role === 'customer').length;
+  if (aud === 'newsletter') return newsletterSubscribedCount;
   return users.length;
 }
 
@@ -113,9 +115,35 @@ async function submitDirectMessage() {
   toast.success('Message sent', `Delivered to ${recipient?.name || recipient?.email} via ${channel}.`);
 }
 
+// Newsletter is email-only. Auto-switch + disable the channel picker
+// when the admin selects it, so they can't accidentally choose SMS.
+function _syncBroadcastChannelToAudience() {
+  const aud = document.querySelector('input[name="broadcast-audience"]:checked')?.value;
+  const sel = document.getElementById('broadcast-channel');
+  if (!sel) return;
+  if (aud === 'newsletter') {
+    sel.value = 'email';
+    sel.disabled = true;
+    sel.title = 'Newsletter subscribers receive email only';
+  } else {
+    sel.disabled = false;
+    sel.title = '';
+  }
+}
+
+// Recompute the preview count AND sync the channel picker whenever the
+// admin changes audience. Fixes a pre-existing issue where changing the
+// radio didn't update the count until the messages tab reloaded.
+document.querySelectorAll('input[name="broadcast-audience"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    updateBroadcastAudiencePreview();
+    _syncBroadcastChannelToAudience();
+  });
+});
+
 async function submitBroadcast() {
   const audience = document.querySelector('input[name="broadcast-audience"]:checked')?.value || 'all_users';
-  const channel  = document.getElementById('broadcast-channel').value;
+  const channel  = audience === 'newsletter' ? 'email' : document.getElementById('broadcast-channel').value;
   const subject  = document.getElementById('broadcast-subject').value.trim();
   const body     = document.getElementById('broadcast-body').value.trim();
   const errEl    = document.getElementById('broadcast-error');
@@ -124,28 +152,53 @@ async function submitBroadcast() {
   if (!body)    { errEl.style.display = 'block'; errEl.innerHTML = '<i class="fa-solid fa-circle-exclamation" style="margin-right:0.4rem;"></i>Message body is required.'; return; }
 
   const count = getBroadcastRecipientCount();
-  const msgRecord = {
-    id: `bcast_${Date.now()}`, type: 'broadcast', audience, subject, body, channel,
-    sentAt: new Date().toISOString(), sentBy: currentAdmin.name, recipientCount: count,
-  };
-  try { await apiRequest('/admin/messages/broadcast', { method: 'POST', body: JSON.stringify(msgRecord) }); } catch {}
-  messages.unshift(msgRecord);
-  await addLog('system', `Broadcast sent to ${count} users (${audience})`, { adminName: currentAdmin.name, adminRole: currentAdmin.role, subject, channel, audience, count });
-  document.getElementById('broadcast-subject').value = '';
-  document.getElementById('broadcast-body').value    = '';
-  closeModal('broadcast-modal');
-  renderMessages();
-  updateMessageStats();
-  toast.success('Broadcast sent', `Message delivered to ${count} recipient${count !== 1 ? 's' : ''}.`);
+  if (count === 0) {
+    errEl.style.display = 'block';
+    errEl.innerHTML = '<i class="fa-solid fa-circle-exclamation" style="margin-right:0.4rem;"></i>No recipients match this audience.';
+    return;
+  }
+
+  const payload = { audience, subject, body, channel };
+
+  try {
+    const saved = await apiRequest('/admin/messages/broadcast', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    // Use the server's record — it has the real id, recipientCount, sentAt
+    const record = {
+      ...saved,
+      id: saved?.id || saved?._id?.toString(),
+      recipientCount: saved?.recipientCount ?? count,
+    };
+    messages.unshift(record);
+    await addLog('system', `Broadcast sent to ${record.recipientCount} users (${audience})`, {
+      adminName: currentAdmin.name, adminRole: currentAdmin.role,
+      subject, channel, audience, count: record.recipientCount,
+    });
+    document.getElementById('broadcast-subject').value = '';
+    document.getElementById('broadcast-body').value    = '';
+    closeModal('broadcast-modal');
+    renderMessages();
+    updateMessageStats();
+    toast.success('Broadcast sent', `Message delivered to ${record.recipientCount} recipient${record.recipientCount !== 1 ? 's' : ''}.`);
+  } catch (err) {
+    // THE FIX: surface the actual error inside the modal, don't swallow it
+    errEl.style.display = 'block';
+    errEl.innerHTML = `<i class="fa-solid fa-circle-exclamation" style="margin-right:0.4rem;"></i>${err?.message || 'Failed to send broadcast.'}`;
+  }
 }
 
 function viewMessage(msgId) {
   const msg = messages.find(m => m.id === msgId);
   if (!msg) return;
   const audienceMap = {
-    all_users: 'All Users', organizers: 'Organizers Only',
-    customers: 'Customers Only', both: 'Organizers & Customers',
+    all_users: 'All Users',
+    organizers: 'Organizers Only',
+    customers: 'Customers Only',
+    both: 'Organizers & Customers',
     individual: msg.recipientName || 'Individual User',
+    newsletter: 'Newsletter Subscribers',
   };
   const channelIcon = { email:'fa-envelope', sms:'fa-mobile-screen-button', both:'fa-satellite-dish' };
   document.getElementById('view-message-body').innerHTML = `
@@ -195,7 +248,14 @@ function renderMessages() {
     renderPaginationBar('messages-pagination', 'messages', 0, 1, 1, pp);
     return;
   }
-  const audienceMap = { all_users:'All Users', organizers:'Organizers Only', customers:'Customers Only', both:'Org. & Customers', individual:'' };
+  const audienceMap = {
+    all_users: 'All Users',
+    organizers: 'Organizers Only',
+    customers: 'Customers Only',
+    both: 'Org. & Customers',
+    individual: '',
+    newsletter: 'Newsletter',
+  };
   const channelIcon = { email:'fa-envelope', sms:'fa-mobile-screen-button', both:'fa-satellite-dish' };
   tb.innerHTML = rows.map(m => {
     const dateStr = new Date(m.sentAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
@@ -213,7 +273,7 @@ function renderMessages() {
         <td><span class="msg-channel-pill msg-channel-${m.channel}"><i class="fa-solid ${channelIcon[m.channel] || 'fa-envelope'}"></i> ${m.channel}</span></td>
         <td><span class="msg-type-badge msg-type-${m.type}">${m.type === 'broadcast' ? '<i class="fa-solid fa-bullhorn"></i> Broadcast' : '<i class="fa-solid fa-paper-plane"></i> Direct'}</span></td>
         <td><div class="actions"><button class="btn-icon" style="background:#6366f1;" onclick="viewMessage('${m.id}')" title="View"><i class="fa-solid fa-eye"></i></button><button class="btn-icon" style="background:#ef4444;" onclick="deleteMessage('${m.id}')" title="Delete"><i class="fa-solid fa-trash"></i></button></div></td>
-      </table>`;
+      </tr>`;
   }).join('');
   renderPaginationBar('messages-pagination', 'messages', total, page, totalPages, pp);
 }
@@ -225,7 +285,7 @@ async function deleteMessage(msgId) {
   try { await apiRequest(`/admin/messages/${msgId}`, { method: 'DELETE' }); } catch {}
   const idx = messages.findIndex(m => m.id === msgId);
   if (idx !== -1) messages.splice(idx, 1);
- // await addLog('system', `Message deleted: ${msg?.subject}`, { adminName: currentAdmin.name, adminRole: currentAdmin.role, msgId });
+  // await addLog('system', `Message deleted: ${msg?.subject}`, { adminName: currentAdmin.name, adminRole: currentAdmin.role, msgId });
   renderMessages();
   updateMessageStats();
   toast.success('Message deleted', 'The message record has been removed.');
@@ -265,6 +325,14 @@ async function loadMessages() {
     messages = (res.messages || []).map(m => ({ ...m, id: m.id || m._id?.toString() }));
   } catch {
     if (!messages.length) messages = [];
+  }
+  // Newsletter subscriber count for the broadcast audience preview.
+  // Endpoint added in the newsletter backend pass; falls back to 0 if absent.
+  try {
+    const stats = await apiRequest('/admin/newsletter/stats');
+    newsletterSubscribedCount = Number(stats?.subscribed) || 0;
+  } catch {
+    newsletterSubscribedCount = 0;
   }
   renderMessages();
   updateMessageStats();

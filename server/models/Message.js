@@ -10,7 +10,7 @@ const messageSchema = new mongoose.Schema({
     // must match every path in messageService.js — including 'individual'
     // for createDirectMessage. Mongoose skips enum validation for null/
     // undefined values, so pre-existing null rows remain valid.
-    enum: ['all_users', 'organizers', 'customers', 'both', 'individual'],
+    enum: ['all_users', 'organizers', 'customers', 'both', 'individual', 'newsletter'],
   },
   subject: { type: String, required: true, maxlength: 200 },
   body: { type: String, required: true, maxlength: 10000 },

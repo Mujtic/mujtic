@@ -2,13 +2,14 @@
 const crypto = require('crypto');
 const Message = require('../models/Message');
 const User = require('../models/User');
+const Newsletter = require('../models/Newsletter');
 const { sendEmail, sendSMS } = require('./notificationService');
 const { AppError } = require('../utils/appError');
 const { logger } = require('../config/logger');
 const { escapeHtml, sanitizeHeader } = require('../utils/htmlSecurity');
 
 const VALID_CHANNELS = ['email', 'sms', 'both'];
-const VALID_AUDIENCES = ['all_users', 'organizers', 'customers', 'both'];
+const VALID_AUDIENCES = ['all_users', 'organizers', 'customers', 'both', 'newsletter'];
 
 const assertChannel = (channel) => {
   if (!VALID_CHANNELS.includes(channel)) {
@@ -89,6 +90,16 @@ class MessageService {
     assertNonEmpty(body, 'Body');
     assertChannel(channel);
 
+    // Newsletter subscribers opted into marketing emails only — they are
+    // contacts, not registered users. SMS is not an option for this list.
+    if (audience === 'newsletter' && channel !== 'email') {
+      throw new AppError('Newsletter subscribers receive email only — choose "email" as the channel', 400);
+    }
+
+    if (audience === 'newsletter') {
+      return this._broadcastToNewsletter(subject, body, sentBy);
+    }
+
     // --- Build recipient query from validated audience only ---
     let query = {};
     if (audience === 'organizers') query = { role: 'organizer' };
@@ -145,6 +156,67 @@ class MessageService {
     logger.info('Broadcast dispatched', {
       messageId: message.id, audience, channel,
       recipients: count, deliveryAttempts: delivered,
+    });
+
+    return message;
+  }
+
+  // ── Newsletter broadcast ──
+  // Marketing sends require per-recipient unsubscribe links, which means we
+  // can't share one HTML body across the list. Each email gets its own footer
+  // with the recipient's personal token — compliance for CAN-SPAM / GDPR /
+  // Ghana's Data Protection Act.
+  async _broadcastToNewsletter(subject, body, sentBy) {
+    const subs = await Newsletter.find({ status: 'subscribed' })
+      .select('email unsubscribeToken')
+      .lean();
+    const count = subs.length;
+
+    if (count === 0) {
+      throw new AppError('No newsletter subscribers are currently subscribed', 400);
+    }
+
+    const message = new Message({
+      id: genId('bcast'),
+      type: 'broadcast',
+      audience: 'newsletter',
+      subject: sanitizeHeader(subject),
+      body,
+      channel: 'email',
+      recipientCount: count,
+      sentBy,
+    });
+    await message.save();
+
+    const subjectSafe = sanitizeHeader(subject);
+    const frontendUrl = (process.env.FRONTEND_URL || 'https://glycr.com').replace(/\/$/, '');
+
+    let delivered = 0;
+    for (const sub of subs) {
+      const unsubscribeUrl = `${frontendUrl}/api/newsletter/unsubscribe/${sub.unsubscribeToken}`;
+
+      const personalizedText = `${body}\n\n---\nYou received this because you subscribed to Glycr updates.\nUnsubscribe: ${unsubscribeUrl}`;
+
+      const personalizedHtml = `
+        <pre style="white-space:pre-wrap;font-family:inherit;">${escapeHtml(body)}</pre>
+        <div style="margin-top:2rem;padding-top:1rem;border-top:1px solid #eef2f7;font-size:0.75rem;color:#6b7f93;text-align:center;line-height:1.6;">
+          You received this because you subscribed to Glycr updates.<br>
+          <a href="${unsubscribeUrl}" style="color:#0d9488;text-decoration:underline;">Unsubscribe</a>
+        </div>`;
+
+      delivered++;
+      sendEmail(sub.email, subjectSafe, personalizedHtml, personalizedText)
+        .catch((e) => logger.error('newsletter broadcast email failed', {
+          messageId: message.id,
+          subscriberEmail: sub.email,
+          err: e.message,
+        }));
+    }
+
+    logger.info('Newsletter broadcast dispatched', {
+      messageId: message.id,
+      recipients: count,
+      deliveryAttempts: delivered,
     });
 
     return message;
