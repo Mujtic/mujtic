@@ -11,6 +11,11 @@ const serviceRequestSchema = new mongoose.Schema({
     trim: true,
     match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
   },
+  userPhone: {
+    type: String,
+    default: null,
+    match: /^\+233\d{9}$/,
+  },
   category: {
     type: String,
     enum: ['ticket_issue', 'payment_problem', 'refund_request', 'organizer_support', 'account_issue', 'bug_report', 'other'],

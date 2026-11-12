@@ -151,8 +151,12 @@ function exportCsvForType(data, type, filename) {
     csv = 'ID,UserName,UserEmail,UserPhone,EventTitle,EventDate,Position,JoinedAt,Notified\n';
     data.forEach(w => { csv += `"${w.id}","${w.userName||''}","${w.userEmail||''}","${w.userPhone||''}","${w.eventTitle||''}","${w.eventDate||''}",${w.position||''},"${w.joinedAt||''}",${w.notified||false}\n`; });
   } else if (type === 'service-requests') {
-    csv = 'ID,UserName,UserEmail,Category,Subject,Status,SubmittedAt,ResolvedAt,ResolutionNotes\n';
-    data.forEach(r => { csv += `"${r.id}","${r.userName||''}","${r.userEmail||''}","${r.category||''}","${(r.subject||'').replace(/"/g,"'")}","${r.status}","${r.submittedAt||''}","${r.resolvedAt||''}","${(r.resolutionNotes||'').replace(/"/g,"'")}"\n`; });
+    csv = 'RequestID,UserName,UserEmail,UserPhone,Category,Subject,Status,SubmittedAt,ResolvedAt,ResolutionNotes\n';
+    data.forEach(r => {
+      const emailStr = Array.isArray(r.userEmail) ? (r.userEmail[0] || '') : (r.userEmail || '');
+      const refId    = r.requestId || r.id;
+      csv += `"${refId}","${r.userName||''}","${emailStr}","${r.userPhone||''}","${r.category||''}","${(r.subject||'').replace(/"/g,"'")}","${r.status}","${r.submittedAt||''}","${r.resolvedAt||''}","${(r.resolutionNotes||'').replace(/"/g,"'")}"\n`;
+    });
   } else if (type === 'transactions') {
     csv = 'ID,Type,Category,Amount,Status,Method,UserName,UserEmail,Reference,Description,EventTitle,CreatedAt\n';
     data.forEach(t => {

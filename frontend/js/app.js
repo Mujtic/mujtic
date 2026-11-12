@@ -569,17 +569,53 @@ class GlycrApp {
     e.preventDefault();
     const name    = document.getElementById('help-name').value.trim();
     const email   = document.getElementById('help-email').value.trim();
+    const phone   = document.getElementById('help-phone').value.trim();
     const subject = document.getElementById('help-subject').value;
     const message = document.getElementById('help-message').value.trim();
     const s = document.getElementById('help-status');
-    if (!name || !email || !subject || !message) { s.style.display = 'block'; s.className = 'status-msg error'; s.textContent = 'Please fill in all fields.'; return; }
+
+    this.clearFieldErrors('help-phone-err');
+
+    if (!name || !email || !subject || !message) {
+      s.style.display = 'block';
+      s.className = 'status-msg error';
+      s.textContent = 'Please fill in all required fields.';
+      return;
+    }
+    if (!phone) {
+      this.setFieldError('help-phone', 'help-phone-err', 'Phone number is required');
+      return;
+    }
+    if (!this.validatePhone(phone)) {
+      this.setFieldError('help-phone', 'help-phone-err', 'Use format: +233xxxxxxxxx');
+      return;
+    }
+
     const categoryMap = { ticket_issue: 'ticket_issue', payment_problem: 'payment_problem', refund_request: 'refund_request', organizer_support: 'organizer_support', account_issue: 'account_issue', bug_report: 'bug_report', other: 'other' };
     const category = categoryMap[subject] || 'other';
-    s.style.display = 'block'; s.className = 'status-msg loading'; s.textContent = 'Sending your message…';
+
+    s.style.display = 'block';
+    s.className = 'status-msg loading';
+    s.textContent = 'Sending your message…';
+
     try {
-      await this.fetchApi('/service-requests', { method: 'POST', body: JSON.stringify({ name, email, category, subject, message }) });
+      const result = await this.fetchApi('/service-requests', {
+        method: 'POST',
+        body: JSON.stringify({ name, email, phone, category, subject, message }),
+      });
+
+      const ref = result.requestId || result.id || '—';
       s.className = 'status-msg success';
-      s.innerHTML = '<strong>✓ Message sent!</strong> We\'ll reply within 2–4 hours.';
+      s.innerHTML = `
+        <strong>✓ Message sent!</strong> We'll reply within 2–4 hours.
+        <div style="margin-top:0.7rem; padding:0.6rem 0.8rem; background:var(--bg-3); border:1px solid var(--border); border-radius:var(--radius); text-align:center;">
+          <div style="font-size:0.68rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:0.25rem;">Reference Number</div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:1.05rem; color:var(--teal); font-weight:600; user-select:all;">${esc(ref)}</div>
+        </div>
+        <div style="font-size:0.75rem; color:var(--muted); margin-top:0.5rem;">
+          Save this — you'll need it for any follow-up.
+        </div>`;
+
       document.getElementById('help-form').reset();
     } catch (err) {
       s.className = 'status-msg error';

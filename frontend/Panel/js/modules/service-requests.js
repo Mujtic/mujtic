@@ -42,6 +42,7 @@ function renderServiceRequests() {
     const catIcon   = SR_CATEGORY_ICONS[r.category] || SR_CATEGORY_ICONS.other;
     const isResolved = r.status === 'resolved';
     const sel       = selectedIds['service-requests'].has(r.id);
+    const emailDisplay = Array.isArray(r.userEmail) ? (r.userEmail[0] || '—') : (r.userEmail || '—');
     return `
       <tr class="${sel ? 'row-selected' : ''} ${isResolved ? 'sr-row-resolved' : ''}">
         <td><input type="checkbox" class="row-checkbox" data-id="${r.id}" ${sel ? 'checked' : ''} onchange="toggleRowSelect('service-requests','${r.id}',this)"></td>
@@ -51,7 +52,8 @@ function renderServiceRequests() {
         </td>
         <td>
           <div class="sr-table-user">${r.userName || '—'}</div>
-          <div class="sr-table-sub"><i class="fa-regular fa-envelope"></i> ${Array.isArray(r.userEmail) ? r.userEmail[0] : (r.userEmail || '—')}</div>
+          <div class="sr-table-sub"><i class="fa-regular fa-envelope"></i> ${emailDisplay}</div>
+          ${r.userPhone ? `<div class="sr-table-sub"><i class="fa-solid fa-phone"></i> <a href="tel:${r.userPhone}" style="color:#22d3ee;text-decoration:none;">${r.userPhone}</a></div>` : ''}
         </td>
         <td>
           <div class="sr-table-subject" title="${r.subject || ''}">${r.subject ? r.subject.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase()) : '—'}</div>
@@ -88,7 +90,15 @@ function getFilteredServiceRequests() {
   const dto      = document.getElementById('sr-date-to')?.value;
   return [...serviceRequests].sort((a,b) => new Date(b.submittedAt) - new Date(a.submittedAt)).filter(r => {
     const emailStr = Array.isArray(r.userEmail) ? r.userEmail.join(' ') : (r.userEmail || '');
-    const mSearch = !search || String(r.id).toLowerCase().includes(search) || (r.requestId||'').toLowerCase().includes(search) || (r.userName||'').toLowerCase().includes(search) || emailStr.toLowerCase().includes(search) || (r.subject||'').toLowerCase().includes(search) || (r.message||'').toLowerCase().includes(search);
+    const phoneStr = r.userPhone || '';
+    const mSearch = !search
+      || String(r.id).toLowerCase().includes(search)
+      || (r.requestId||'').toLowerCase().includes(search)
+      || (r.userName||'').toLowerCase().includes(search)
+      || emailStr.toLowerCase().includes(search)
+      || phoneStr.toLowerCase().includes(search)
+      || (r.subject||'').toLowerCase().includes(search)
+      || (r.message||'').toLowerCase().includes(search);
     return mSearch && (status === 'all' || r.status === status) && (category === 'all' || r.category === category) && applyDateRangeFilter(r.submittedAt, dfrom, dto);
   });
 }
@@ -97,7 +107,7 @@ function viewServiceRequest(srId) {
   const r = serviceRequests.find(x => x.id === srId);
   if (!r) return;
   const [sBadge, sIcon, sLabel] = _srStatusBadge(r.status);
-  const emailDisplay = Array.isArray(r.userEmail) ? r.userEmail[0] : (r.userEmail || '—');
+  const emailDisplay = Array.isArray(r.userEmail) ? (r.userEmail[0] || '—') : (r.userEmail || '—');
   const catIcon = SR_CATEGORY_ICONS[r.category] || SR_CATEGORY_ICONS.other;
   document.getElementById('sr-modal-body').innerHTML = `
     <div class="detail-grid">
@@ -112,6 +122,9 @@ function viewServiceRequest(srId) {
       <div style="font-size:0.875rem;line-height:1.8;color:#94a3b8;">
         <div><i class="fa-regular fa-user" style="margin-right:0.3rem;"></i>${r.userName || '—'}</div>
         <div><i class="fa-regular fa-envelope" style="margin-right:0.3rem;"></i>${emailDisplay}</div>
+        ${r.userPhone
+    ? `<div><i class="fa-solid fa-phone" style="margin-right:0.3rem;"></i><a href="tel:${r.userPhone}" style="color:#22d3ee;text-decoration:none;">${r.userPhone}</a></div>`
+    : '<div style="color:#475569;"><i class="fa-solid fa-phone" style="margin-right:0.3rem;"></i>No phone on file</div>'}
       </div>
     </div>
     <div style="margin-bottom:1rem;">
@@ -132,7 +145,7 @@ function viewServiceRequest(srId) {
       ${r.status === 'pending' ? `<button class="btn" style="flex:1;background:#0891b2;color:white;" onclick="markServiceRequestInProgress('${r.id}');closeModal('sr-modal');"><i class="fa-solid fa-spinner"></i> Mark In Progress</button>` : ''}
       <button class="btn" style="flex:1;background:#10b981;color:white;" onclick="openResolveServiceRequestModal('${r.id}');closeModal('sr-modal');"><i class="fa-solid fa-circle-check"></i> Mark as Resolved</button>
     </div>` : ''}`;
- // addLog('system', `Viewed service request: ${r.subject}`, { adminName: currentAdmin.name, adminRole: currentAdmin.role, srId });
+  // addLog('system', `Viewed service request: ${r.subject}`, { adminName: currentAdmin.name, adminRole: currentAdmin.role, srId });
   openModal('sr-modal');
 }
 
