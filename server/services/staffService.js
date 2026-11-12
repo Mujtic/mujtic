@@ -207,7 +207,6 @@ class StaffService {
       if (!ticketRef) return null;
 
       // If we were handed a staff code (e.g. "SC45ED43F"), swap it for the real name.
-      // staffId is the Staff._id, so the lookup is cheap and indexed.
       let resolvedName = staffName || 'organizer';
       if (staffId && /^S[0-9A-F]{8}$/i.test(resolvedName)) {
         const staffDoc = await Staff.findById(staffId).select('name').lean();
@@ -221,7 +220,7 @@ class StaffService {
         organizerId,
         scannedById:   scannedById || null,
         staffId:       staffId     || null,
-        scannedByName: resolvedName,           // ← now the real name
+        scannedByName: resolvedName,
         method:        method      || 'manual',
         eventTitle:    event?.title || null,
         result,
@@ -234,11 +233,14 @@ class StaffService {
       await log.save();
       return log;
     } catch (err) {
-      logger.warn('ScanLog write failed (non-fatal)', { ... });
+      logger.warn('ScanLog write failed (non-fatal)', {
+        ticketId,
+        eventId: eventId?.toString(),
+        err: err.message,
+      });
       return null;
     }
   }
-
   async getScanLogs({ organizerId, eventId, limit = 100, staffFilter }) {
     if (eventId) await this._requireOrganizerEvent(eventId, organizerId);
 
