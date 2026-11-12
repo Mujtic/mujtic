@@ -21,6 +21,11 @@ const userSchema = new mongoose.Schema({
   suspended: { type: Boolean, default: false },   // admin action — the user cannot undo it
   // Self-service deactivation. Unlike `suspended`, signing in again clears it.
   deactivatedAt: { type: Date, default: null },
+  // Self-service deletion: set when the user requests it. Cleared on login.
+  // The cron anonymizes the account once this passes AND deletedAt is null.
+  deleteScheduledFor: { type: Date, default: null },
+  // Set only by the cron when the anonymize actually runs.
+  deletedAt: { type: Date, default: null },
   // When the user ticked "I agree to the Terms of Service and Privacy Policy" at sign-up.
   termsAcceptedAt: { type: Date, default: null },
   currency: { type: String, default: 'GHC' },
@@ -31,15 +36,11 @@ const userSchema = new mongoose.Schema({
 });
 
 // ── Indexes ──
-// Cover the queries in adminService.getStats / messageService.createBroadcast /
-// userService.getAllUsers:
-//   find({ role })                          → getStats, createBroadcast
-//   find({ isOrganizer })                   → getAllUsers filter
-//   find({ suspended })                     → getAllUsers filter
-//   find({ isOrganizer, suspended })        → getAllUsers both filters
 userSchema.index({ role: 1 });
 userSchema.index({ isOrganizer: 1, suspended: 1 });
 userSchema.index({ suspended: 1 });
+// Cron scans for due deletions — sparse because most users have `null`.
+userSchema.index({ deleteScheduledFor: 1 }, { sparse: true });
 
 userSchema.virtual('id').get(function() { return this._id.toString(); });
 userSchema.set('toJSON', { virtuals: true });

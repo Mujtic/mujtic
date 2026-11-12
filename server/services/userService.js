@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const User = require('../models/User');
 const Event = require('../models/Event');
 const Ticket = require('../models/Ticket');
@@ -37,8 +38,6 @@ class UserService {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // role and isOrganizer must always agree — the frontend, JWT and payout
-    // checks all read isOrganizer.
     const isOrg = isOrganizer === true;
     const role = isOrg ? 'organizer' : 'customer';
 
@@ -92,6 +91,7 @@ class UserService {
 
     if (!user) throw new AppError('Invalid credentials', 401);
     if (user.suspended) throw new AppError('Account suspended', 403);
+    if (user.deletedAt) throw new AppError('Invalid credentials', 401);
 
     const isPrivileged = user.role === 'admin' || user.role === 'moderator';
 
@@ -143,6 +143,28 @@ class UserService {
       reactivated = true;
     }
 
+    // Signing in cancels a pending deletion. Password was verified above,
+    // so this is the legitimate owner.
+    let deletionCancelled = false;
+    if (user.deleteScheduledFor) {
+      await User.updateOne(
+        { _id: user._id },
+        { $set: { deleteScheduledFor: null } }
+      );
+      user.deleteScheduledFor = null;
+      deletionCancelled = true;
+
+      const cancelHtml = `
+        <h2>Welcome back — your account deletion has been cancelled</h2>
+        <p>Hi ${escapeHtml(user.name || 'there')},</p>
+        <p>You signed in before the deletion deadline, so your Glycr account is
+           no longer scheduled for deletion. Nothing was lost.</p>
+        <p>– Glycr Team</p>
+      `;
+      sendEmail(user.email, 'Your Glycr account deletion was cancelled', cancelHtml)
+        .catch(e => logger.error('Deletion-cancelled email failed', { err: e.message }));
+    }
+
     const token = jwt.sign(
       {
         id: user._id,
@@ -157,7 +179,7 @@ class UserService {
 
     const userObj = user.toObject({ virtuals: true });
     delete userObj.password;
-    return { token, user: userObj, reactivated };
+    return { token, user: userObj, reactivated, deletionCancelled };
   }
 
   async getProfile(userId) {
@@ -217,8 +239,6 @@ class UserService {
   async changeRole(userId, newRole) {
     const allowedRoles = ['customer', 'organizer', 'moderator', 'admin'];
     if (!allowedRoles.includes(newRole)) throw new AppError('Invalid role', 400);
-    // Keep the boolean flags in step with `role`, otherwise they drift apart
-    // (the frontend and JWT read isOrganizer / isAdmin, not role).
     const user = await User.findByIdAndUpdate(
       userId,
       { role: newRole, isOrganizer: newRole === 'organizer', isAdmin: newRole === 'admin' },
@@ -232,7 +252,6 @@ class UserService {
     const query = {};
     if (filters.isOrganizer !== undefined) query.isOrganizer = filters.isOrganizer;
     if (filters.suspended !== undefined) query.suspended = filters.suspended;
-    // 👇 the line Claude was talking about
     if (filters.deactivated !== undefined) {
       query.deactivatedAt = filters.deactivated ? { $ne: null } : null;
     }
@@ -304,7 +323,7 @@ class UserService {
   }
 
   async changePassword(userId, currentPassword, newPassword) {
-    const user = await User.findById(userId).select('+password');   // needed to read current hash
+    const user = await User.findById(userId).select('+password');
     if (!user) throw new AppError('User not found', 404);
 
     const valid = await bcrypt.compare(currentPassword, user.password);
@@ -320,10 +339,6 @@ class UserService {
   }
 
   // ── Self-service deactivation ──
-  // Hides the account and its events and signs the user out everywhere.
-  // Nothing is deleted: tickets, payouts and refunds stay intact, and signing
-  // in again (see login) reactivates the account. Events stay unpublished
-  // after reactivation, so the organizer republishes deliberately.
   async deactivateAccount(userId, password) {
     if (!password || typeof password !== 'string') {
       throw new AppError('Password is required', 400);
@@ -339,7 +354,6 @@ class UserService {
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) throw new AppError('Password is incorrect', 401);
 
-    // ── Don't strand buyers or money ──
     const ownedEvents = await Event.find({ organizerId: userId })
       .select('_id isCancelled date')
       .lean();
@@ -380,13 +394,8 @@ class UserService {
       throw new AppError('You have a payout in progress. Wait for it to complete before deactivating.', 409);
     }
 
-    // passwordChangedAt = now makes the auth middleware reject every token
-    // issued before this moment (other devices, stolen sessions).
     const now = new Date();
     await User.updateOne({ _id: userId }, { $set: { deactivatedAt: now, passwordChangedAt: now } });
-
-    // Hide their events. publishAt is cleared too, otherwise the scheduler
-    // would flip a scheduled draft back to published after deactivation.
     await Event.updateMany({ organizerId: userId }, { $set: { isPublished: false, publishAt: null } });
 
     const goodbyeHtml = `
@@ -403,21 +412,228 @@ class UserService {
     return { deactivated: true };
   }
 
-  // ── Full cascade delete — everything attached to this user ──
+  // ── Self-service permanent deletion: schedule with 30-day grace ──
+  //
+  // Does NOT anonymize immediately. Sets `deleteScheduledFor` and kills
+  // sessions. If the user logs in before the deadline, `login()` clears it.
+  // Otherwise `executeScheduledDeletion()` (cron) anonymizes.
+  async deleteAccount(userId, password, confirm) {
+    if (!password || typeof password !== 'string') {
+      throw new AppError('Password is required', 400);
+    }
+    if (confirm !== 'DELETE') {
+      throw new AppError('Confirmation text did not match', 400);
+    }
+
+    const user = await User.findById(userId).select('+password role email name deletedAt deleteScheduledFor');
+    if (!user) throw new AppError('User not found', 404);
+    if (user.deletedAt) throw new AppError('Account is already deleted', 409);
+    if (user.deleteScheduledFor) throw new AppError('Account deletion is already scheduled', 409);
+    if (user.role === 'admin' || user.role === 'moderator') {
+      throw new AppError('Staff accounts cannot be deleted here. Contact an administrator.', 403);
+    }
+
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) throw new AppError('Password is incorrect', 401);
+
+    const ownedEvents = await Event.find({ organizerId: userId }).select('_id isCancelled date').lean();
+    if (ownedEvents.length > 0) {
+      const now = new Date();
+      const upcomingIds = ownedEvents
+        .filter(e => !e.isCancelled && new Date(e.date) > now)
+        .map(e => e._id);
+
+      if (upcomingIds.length > 0) {
+        const live = await Ticket.exists({
+          eventId: { $in: upcomingIds },
+          status: { $in: ['active', 'refund_pending'] },
+        });
+        if (live) {
+          throw new AppError('You have upcoming events with tickets sold. Cancel those events first — buyers are refunded automatically.', 409);
+        }
+      }
+
+      const unresolvedEventRefunds = await Refund.exists({
+        eventId: { $in: ownedEvents.map(e => e._id) },
+        status: { $in: ['pending', 'approved'] },
+      });
+      if (unresolvedEventRefunds) {
+        throw new AppError('You have refund requests waiting for a decision. Resolve them before deleting your account.', 409);
+      }
+    }
+
+    const payoutInProgress = await Payout.exists({
+      organizerId: userId,
+      status: { $in: ['pending', 'approved'] },
+    });
+    if (payoutInProgress) {
+      throw new AppError('You have a payout in progress. Wait for it to complete before deleting your account.', 409);
+    }
+
+    const heldTickets = await Ticket.countDocuments({ userId, status: 'active' });
+    if (heldTickets > 0) {
+      throw new AppError(
+        `You still hold ${heldTickets} active ticket${heldTickets === 1 ? '' : 's'}. Use, transfer or refund them before deleting your account.`,
+        409
+      );
+    }
+
+    const ownPendingRefunds = await Refund.exists({
+      userId,
+      status: { $in: ['pending', 'approved'] },
+    });
+    if (ownPendingRefunds) {
+      throw new AppError('You have refund requests still in progress. Wait for them to settle before deleting your account.', 409);
+    }
+
+    const graceDays = Number(process.env.DELETION_GRACE_DAYS) || 30;
+    const now = new Date();
+    const scheduledFor = new Date(now.getTime() + graceDays * 24 * 60 * 60 * 1000);
+
+    await User.updateOne(
+      { _id: userId },
+      { $set: {
+          deleteScheduledFor: scheduledFor,
+          passwordChangedAt: now,   // kills all existing JWTs — user must login to cancel
+        } }
+    );
+
+    const realEmail = user.email;
+    const when = scheduledFor.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    const emailHtml = `
+      <h2>Your Glycr account is scheduled for deletion</h2>
+      <p>Hi ${escapeHtml(user.name || 'there')},</p>
+      <p>Your account will be <strong>permanently deleted on ${when}</strong>.</p>
+      <p><strong>Changed your mind?</strong> Just sign in before that date and the deletion
+         will be cancelled automatically — no extra step required.</p>
+      <p>After ${when}, your profile and personal data are removed. Financial records
+         (payouts, refunds, past ticket sales) are kept for legal reasons but will no
+         longer be associated with your name or email.</p>
+      <p>If you didn't request this, sign in and change your password immediately.</p>
+      <p>– Glycr Team</p>
+    `;
+    sendEmail(realEmail, 'Your Glycr account is scheduled for deletion', emailHtml)
+      .catch(e => logger.error('Deletion-scheduled email failed', { err: e.message }));
+
+    return { scheduledFor: scheduledFor.toISOString(), graceDays };
+  }
+
+  // ── Cron entry point: anonymize one due account ──
+  // Idempotent + race-safe: uses findOneAndUpdate to *claim* the account.
+  // If a concurrent login clears `deleteScheduledFor` first, the claim
+  // returns null and this call is a no-op.
+  async executeScheduledDeletion(userId) {
+    if (!userId) throw new AppError('userId is required', 400);
+
+    const now = new Date();
+
+    const claimed = await User.findOneAndUpdate(
+      { _id: userId, deleteScheduledFor: { $lte: now }, deletedAt: null },
+      { $set: { deletedAt: now } },
+      { returnDocument: 'after', select: '+password email name' }
+    );
+    if (!claimed) return { skipped: true, reason: 'Not due or already executed' };
+
+    const realEmail = claimed.email;
+    const realName  = claimed.name;
+
+    // Waitlists hold the raw email — clear by the OLD email before overwriting
+    await Waitlist.deleteMany({ email: realEmail });
+
+    const placeholderEmail = `deleted+${userId}@glycr.local`;
+    const randomPassword = crypto.randomBytes(32).toString('hex');
+    const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+    await User.updateOne(
+      { _id: userId },
+      { $set: {
+          name: '[Deleted User]',
+          email: placeholderEmail,
+          username: null,
+          phone: null,
+          avatar: null,
+          bio: null,
+          password: hashedPassword,
+          isOrganizer: false,
+          isAdmin: false,
+          role: 'customer',
+          deleteScheduledFor: null,   // consumed
+          passwordChangedAt: now,
+        } }
+    );
+
+    // Scrub PII out of tickets we keep for accounting
+    await Ticket.updateMany(
+      { userId },
+      { $set: {
+          userEmail: placeholderEmail,
+          userPhone: null,
+          buyerName: '[Deleted User]',
+          companyName: '',
+          billingAddress: '',
+        } }
+    );
+
+    // User-side data with no accounting value — gone
+    await Review.deleteMany({ userId });
+    await Favorite.deleteMany({ userId });
+
+    // Financial records (Payout, Refund) are intentionally NOT touched.
+    // Their userId FK still resolves to the anonymized tombstone row.
+
+    if (realEmail && realEmail !== placeholderEmail) {
+      const emailHtml = `
+        <h2>Your Glycr account has been permanently deleted</h2>
+        <p>Hi ${escapeHtml(realName || 'there')},</p>
+        <p>As scheduled, your account has now been removed. Personal data linked to it
+           is gone. Financial records are retained for legal reasons but are no longer
+           associated with your name or email.</p>
+        <p>You can create a new account with this email at any time.</p>
+        <p>– Glycr Team</p>
+      `;
+      sendEmail(realEmail, 'Your Glycr account has been deleted', emailHtml)
+        .catch(e => logger.error('Deletion-executed email failed', { err: e.message }));
+    }
+
+    return { deleted: true, userId: String(userId) };
+  }
+
+  // ── Cron entry point: find every due account and execute ──
+  async processDueDeletions(batchSize = 50) {
+    const now = new Date();
+    const due = await User.find({
+      deleteScheduledFor: { $lte: now },
+      deletedAt: null,
+    }).select('_id').limit(batchSize).lean();
+
+    const results = { processed: 0, failed: 0, ids: [] };
+    for (const u of due) {
+      try {
+        const r = await this.executeScheduledDeletion(u._id);
+        if (r.deleted) { results.processed++; results.ids.push(String(u._id)); }
+      } catch (err) {
+        results.failed++;
+        logger.error('Scheduled deletion failed for user', {
+          userId: String(u._id), err: err.message,
+        });
+      }
+    }
+    return results;
+  }
+
+  // ── Full cascade delete — admin only ──
   // Called by adminService.deleteUser (after permission check) and by
   // userController.deleteUser (also after permission check upstream).
-  // Returns { deleted: true, unresolvedRefunds } so the caller can audit.
+  // Self-service deletion goes through `deleteAccount` (anonymize) instead.
   async deleteUser(userId) {
     if (!userId) throw new AppError('userId is required', 400);
 
     const target = await User.findById(userId);
     if (!target) throw new AppError('User not found', 404);
 
-    // Events this user organized — for cross-user cleanup
     const ownedEvents = await Event.find({ organizerId: userId }).select('_id').lean();
     const ownedEventIds = ownedEvents.map((e) => e._id);
 
-    // Warn (don't block) if there are unresolved refunds
     const refundFilter = {
       status: { $in: ['pending', 'approved'] },
       $or: [
@@ -436,7 +652,6 @@ class UserService {
 
     await User.findByIdAndDelete(userId);
 
-    // Everything attached to events this user organized
     if (ownedEventIds.length > 0) {
       await Event.deleteMany({ _id: { $in: ownedEventIds } });
       await Ticket.deleteMany({ eventId: { $in: ownedEventIds } });
@@ -446,7 +661,6 @@ class UserService {
       await Review.deleteMany({ eventId: { $in: ownedEventIds } });
     }
 
-    // The user's own activity
     await Ticket.deleteMany({ userId });
     await Favorite.deleteMany({ userId });
     await Payout.deleteMany({ organizerId: userId });
@@ -457,7 +671,6 @@ class UserService {
     return { deleted: true, unresolvedRefunds };
   }
 
-  // ── Toggle favorite — business logic that was previously in userController ──
   async toggleFavorite(userId, eventId, action) {
     if (!userId) throw new AppError('userId is required', 400);
     if (!isObjectIdString(eventId)) throw new AppError('Invalid event', 400);

@@ -21,6 +21,7 @@ const reviewRoutes         = require('./reviews');
 const messageRoutes        = require('./messages');
 const couponRoutes         = require('./coupons');
 const staffRoutes          = require('./staff');
+const cronRoutes           = require('./cron');
 
 const router = express.Router();
 
@@ -76,6 +77,12 @@ router.use(userRoutes);
 // accidentally reachable without requireAdmin, this is the highest-value
 // target — admin can manage users, delete events, approve payouts, wipe logs.
 router.use(adminRoutes);
+// ── Cron / scheduled jobs ──
+// Gated by requireCronSecretOrAdmin — only the correct X-Cron-Secret header
+// or an authenticated admin can trigger these. Keeping them adjacent to
+// adminRoutes makes it obvious which mounts are "privileged" so a future
+// mount-order refactor doesn't accidentally expose them behind a weaker route.
+router.use(cronRoutes);
 
 // ── Notifications ──
 // Currently disabled. The notificationController was flagged during the

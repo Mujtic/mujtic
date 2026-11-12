@@ -836,7 +836,8 @@ class GlycrApp {
       type: 'purchase',
       text: isNewUser ? `Welcome to Glycr, ${first}! 🎉` : `Welcome back, ${first}! 👋`,
     });
-    if (result.reactivated) this.showSuccess('Welcome back. Your account has been reactivated');
+    if (result.deletionCancelled) this.showSuccess('Welcome back — your account deletion has been cancelled.');
+    else if (result.reactivated)  this.showSuccess('Welcome back. Your account has been reactivated.');
     else this.showSuccess(isNewUser ? `Account created. Welcome to Glycr, ${first}!` : `Welcome back, ${first}!`);
   }
 
@@ -2220,42 +2221,143 @@ class GlycrApp {
   }
 
   // ─── Organizer Refund Management ──────────────────────────
-  async openOrgRefundsModal() { this.openModal('org-refunds-modal'); await this.loadOrganizerRefunds(); }
+  // ─── Organizer Refund Management ──────────────────────────
+  async openOrgRefundsModal() {
+    try { this.acl.requireOrganizer(); } catch { return; }
+    if (!this.dataLoaded) await this.loadAllData();
+    this._fillOrgRefundEventFilter();
+    this.openModal('org-refunds-modal');
+    await this.loadOrganizerRefunds();
+  }
+
+  _fillOrgRefundEventFilter() {
+    const sel = document.getElementById('org-refund-event-filter');
+    if (!sel) return;
+    const cur = sel.value || 'all';
+    const evs = [...this.orgEvents].sort((a, b) => new Date(b.date) - new Date(a.date));
+    sel.innerHTML = '<option value="all">All events</option>' +
+      evs.map(e => `<option value="${esc(e._id)}">${esc(e.title)}</option>`).join('');
+    sel.value = [...sel.options].some(o => o.value === cur) ? cur : 'all';
+  }
 
   async loadOrganizerRefunds() {
     const container = document.getElementById('org-refunds-list');
-    const filter    = (document.getElementById('org-refund-filter') || {}).value || 'all';
+    if (!container) return;
     container.innerHTML = '<div class="loading-placeholder"><div class="spinner"></div></div>';
     try {
-      const all = this._asArray(await this.fetchApi('/refunds/organizer'), 'refunds', 'data');
-      this.orgRefunds = all;
-      const refunds = filter !== 'all' ? all.filter(r => r.status === filter) : all;
-      if (!refunds.length) { container.innerHTML = '<div class="empty-state"><h3>No refund requests</h3><p>All refund requests for your events will appear here.</p></div>'; return; }
-      await this._ensureEvents(refunds.map(r => this._resolveRefund(r)).filter(x => x.evId && (!x.eventDate || x.eventTitle === 'Event')).map(x => x.evId));
-      container.innerHTML = refunds.map(r => {
-        const x = this._resolveRefund(r);
-        const who = x.userName || x.userEmail || 'Customer';
-        return `<div class="org-refund-card">
-  <div class="org-refund-header">
-    <div>
-      <div class="org-refund-title">${esc(x.eventTitle)}${x.ticketType ? ' — ' + esc(String(x.ticketType).toUpperCase()) : ''}</div>
-      <div class="org-refund-meta" style="display:flex; flex-wrap:wrap; gap:0.25rem 1rem;">
-        <span><i class="fas fa-user"></i> ${esc(who)}${x.userName && x.userEmail ? ' · ' + esc(x.userEmail) : ''}</span>
-        <span><i class="fas fa-calendar-alt"></i> Event: ${esc(this._fmtDate(x.eventDate))}</span>
-        <span><i class="fas fa-clock"></i> Requested: ${esc(this._fmtDate(x.requestedAt))}</span>
-      </div>
-    </div>
-    <span class="status-pill ${esc(r.status)}">${esc(r.status)}</span>
-  </div>
-  <div class="org-refund-reason"><strong>Reason:</strong> ${esc(r.reason)}</div>
-  <div style="font-size:0.82rem; color:var(--dim); margin-bottom:0.75rem;">Refund amount: <strong style="color:var(--teal);">${x.amount != null ? esc(x.sym) + esc(x.amount.toFixed(2)) : 'Full refund'}</strong></div>
-  ${r.status === 'pending' ? `<div class="org-refund-actions">
-    <button class="btn btn-success btn-sm" data-ui-action="approve-refund" data-id="${esc(r._id)}"><i class="fas fa-check"></i> Approve</button>
-    <button class="btn btn-danger btn-sm" data-ui-action="reject-refund" data-id="${esc(r._id)}"><i class="fas fa-times"></i> Reject</button>
-  </div>` : ''}
-</div>`;
-      }).join('');
-    } catch { container.innerHTML = '<div class="empty-state"><h3>Could not load refund requests</h3></div>'; }
+      this.orgRefunds = this._asArray(await this.fetchApi('/refunds/organizer'), 'refunds', 'data');
+    } catch (err) {
+      this.orgRefunds = [];
+      container.innerHTML = `<div class="empty-state"><h3>Could not load refund requests</h3>
+        <p>${esc(err.message || 'Try again in a moment.')}</p></div>`;
+      return;
+    }
+    this.renderOrgRefunds();
+  }
+
+  renderOrgRefunds() {
+    const container = document.getElementById('org-refunds-list');
+    if (!container) return;
+
+    const statusFilter = document.getElementById('org-refund-filter')?.value || 'all';
+    const eventFilter  = document.getElementById('org-refund-event-filter')?.value || 'all';
+    const searchQuery  = (document.getElementById('org-refund-search')?.value || '').trim().toLowerCase();
+    const startFilter  = document.getElementById('org-refund-start')?.value || '';
+    const endFilter    = document.getElementById('org-refund-end')?.value || '';
+
+    const all = this.orgRefunds || [];
+    const resolved = all.map(r => ({ raw: r, x: this._resolveRefund(r) }));
+
+    const filtered = resolved.filter(({ raw, x }) => {
+      if (statusFilter !== 'all' && raw.status !== statusFilter) return false;
+      if (eventFilter !== 'all' && x.evId !== eventFilter) return false;
+      if (searchQuery) {
+        const hay = [
+          x.userName, x.userEmail, x.eventTitle, x.ticketType,
+          raw.reason, raw._id, this._idOf(raw.ticketId),
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(searchQuery)) return false;
+      }
+      if (startFilter || endFilter) {
+        const d = x.requestedAt ? new Date(x.requestedAt) : null;
+        if (!d || isNaN(d)) return false;
+        if (startFilter && d < new Date(startFilter)) return false;
+        if (endFilter && d > new Date(endFilter + 'T23:59:59')) return false;
+      }
+      return true;
+    });
+
+    this._orgRefundView = filtered.map(({ raw }) => raw);
+
+    const countChip = document.getElementById('org-refunds-count');
+    if (countChip) countChip.textContent = all.length
+      ? (filtered.length === all.length ? `${all.length}` : `${filtered.length} of ${all.length}`)
+      : '';
+
+    if (!all.length) {
+      container.innerHTML = '<div class="empty-state"><h3>No refund requests</h3><p>All refund requests for your events will appear here.</p></div>';
+      return;
+    }
+    if (!filtered.length) {
+      container.innerHTML = '<div class="empty-state"><h3>No matches</h3><p>No refund requests match your filters.</p></div>';
+      return;
+    }
+
+    container.innerHTML = filtered.map(({ raw: r, x }) => {
+      const who = x.userName || x.userEmail || 'Customer';
+      return `<div class="org-refund-card">
+        <div class="org-refund-header">
+          <div>
+            <div class="org-refund-title">${esc(x.eventTitle)}${x.ticketType ? ' — ' + esc(String(x.ticketType).toUpperCase()) : ''}</div>
+            <div class="org-refund-meta" style="display:flex; flex-wrap:wrap; gap:0.25rem 1rem;">
+              <span><i class="fas fa-user"></i> ${esc(who)}${x.userName && x.userEmail ? ' · ' + esc(x.userEmail) : ''}</span>
+              <span><i class="fas fa-calendar-alt"></i> Event: ${esc(this._fmtDate(x.eventDate))}</span>
+              <span><i class="fas fa-clock"></i> Requested: ${esc(this._fmtDate(x.requestedAt))}</span>
+            </div>
+          </div>
+          <span class="status-pill ${esc(r.status)}">${esc(r.status)}</span>
+        </div>
+        <div class="org-refund-reason"><strong>Reason:</strong> ${esc(r.reason)}</div>
+        <div style="font-size:0.82rem; color:var(--dim); margin-bottom:0.75rem;">Refund amount: <strong style="color:var(--teal);">${x.amount != null ? esc(x.sym) + esc(x.amount.toFixed(2)) : 'Full refund'}</strong></div>
+        ${r.status === 'pending' ? `<div class="org-refund-actions">
+          <button class="btn btn-success btn-sm" data-ui-action="approve-refund" data-id="${esc(r._id)}"><i class="fas fa-check"></i> Approve</button>
+          <button class="btn btn-danger btn-sm" data-ui-action="reject-refund" data-id="${esc(r._id)}"><i class="fas fa-times"></i> Reject</button>
+        </div>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  clearOrgRefundFilters() {
+    ['org-refund-search', 'org-refund-start', 'org-refund-end'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    ['org-refund-filter', 'org-refund-event-filter'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = 'all';
+    });
+    this.renderOrgRefunds();
+  }
+
+  exportOrgRefunds() {
+    try { this.acl.requireOrganizer(); } catch { return; }
+    const rows = this._orgRefundView || [];
+    if (!rows.length) return this.showToast('No refunds to export.', 'warning');
+    let csv = 'Refund ID,Ticket ID,Event,Buyer Name,Buyer Email,Ticket Type,Amount,Status,Requested At,Reason\n';
+    rows.forEach(r => {
+      const x = this._resolveRefund(r);
+      csv += [
+        this._csvCell(r._id),
+        this._csvCell(this._idOf(r.ticketId) || r.ticketId || ''),
+        this._csvCell(x.eventTitle),
+        this._csvCell(x.userName),
+        this._csvCell(x.userEmail),
+        this._csvCell(String(x.ticketType || '').toUpperCase()),
+        x.amount != null ? x.amount.toFixed(2) : '',
+        this._csvCell(r.status),
+        this._csvCell(x.requestedAt ? new Date(x.requestedAt).toLocaleString('en-GB') : ''),
+        this._csvCell(r.reason || ''),
+      ].join(',') + '\n';
+    });
+    this._dlBlob(csv, `refunds_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
   }
 
   async approveRefund(refundId) {
@@ -3226,6 +3328,60 @@ class GlycrApp {
       this.logout(true);
       this.showSuccess('Account deactivated. Sign in again any time to reactivate');
     } catch (err) { this.setFieldError('deactivate-password', 'deactivate-password-err', err.message); }
+  }
+
+  // ↓ ADD
+  async deleteAccount() {
+    const pw = document.getElementById('delete-account-password').value;
+    this.clearFieldErrors('delete-account-password-err');
+    if (!pw) return this.setFieldError('delete-account-password', 'delete-account-password-err', 'Enter your password to continue');
+
+    // Step 1 — explain the 30-day grace and how to cancel
+    const first = await this.confirmDialog({
+      title: 'Delete your account?',
+      message:
+        'Your account will be scheduled for deletion in 30 days. You will be signed out immediately.\n\n' +
+        'Sign in any time during those 30 days to cancel — no extra step needed.\n\n' +
+        'After the deadline, your profile and personal data are permanently removed. ' +
+        'Financial records (payouts, refunds, past sales) are kept for legal reasons ' +
+        'but will no longer be associated with your name or email.',
+      confirmText: 'Continue', cancelText: 'Cancel', tone: 'danger',
+    });
+    if (!first) return;
+
+    // Step 2 — explicit text confirmation
+    const typed = await this.confirmDialog({
+      title: 'Final confirmation',
+      message: 'Type DELETE (in capitals) to schedule your account for deletion.',
+      confirmText: 'Schedule deletion', cancelText: 'Cancel', tone: 'danger',
+      input: { label: 'Confirmation', placeholder: 'DELETE' },
+    });
+    if (typed === null) return;
+    if (String(typed).trim() !== 'DELETE') {
+      this.setFieldError('delete-account-password', 'delete-account-password-err', 'Confirmation text did not match. Nothing was scheduled.');
+      return;
+    }
+
+    try {
+      const res = await this.fetchApi('/auth/account', {
+        method: 'DELETE',
+        body: JSON.stringify({ password: pw, confirm: 'DELETE' }),
+        successMsg: false,
+      });
+
+      this.closeAllModals();
+      this.logout(true);   // silent — custom toast below
+
+      const when = new Date(res.scheduledFor).toLocaleDateString('en-GB', {
+        day: 'numeric', month: 'long', year: 'numeric',
+      });
+      this.showToast(
+        `Account scheduled for deletion on ${when}. Sign in any time before then to cancel.`,
+        'info', 8000
+      );
+    } catch (err) {
+      this.setFieldError('delete-account-password', 'delete-account-password-err', err.message);
+    }
   }
 
   // ─── Modal Helpers ────────────────────────────────────────

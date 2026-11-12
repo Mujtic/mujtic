@@ -1464,6 +1464,24 @@
         </div>
         <button type="button" class="btn btn-danger btn-block" id="deactivate-btn" onclick="app.deactivateAccount()">Deactivate my account</button>
       </div>
+
+      <!-- ↓ ADD: permanent delete -->
+      <div class="danger-zone" style="margin-top:1.25rem; border-color:rgba(229,72,77,0.6);">
+        <h4><i class="fas fa-trash-alt"></i> Delete account permanently</h4>
+        <p>This <strong>permanently deletes</strong> your account. Your profile, tickets, reminders and reviews are removed. Your name and email are scrubbed from our records. <strong>This cannot be undone.</strong> Payouts, refunds and tax records are kept for legal reasons but are no longer linked to you by name.</p>
+        <p style="font-size:0.78rem; color:var(--coral); margin-top:0.5rem;">
+          <i class="fas fa-exclamation-triangle"></i>
+          You cannot delete your account while you have upcoming events you organise, unpaid payouts, or active tickets. Resolve those first.
+        </p>
+        <div class="form-field">
+          <label class="form-label">Confirm with your password</label>
+          <input type="password" id="delete-account-password" class="input" placeholder="••••••••" autocomplete="current-password">
+          <span class="field-error" id="delete-account-password-err"></span>
+        </div>
+        <button type="button" class="btn btn-danger btn-block" id="delete-account-btn" onclick="app.deleteAccount()">
+          <i class="fas fa-trash-alt"></i> Permanently delete my account
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -1510,19 +1528,53 @@
   <div class="modal-backdrop"></div>
   <div class="modal-box wide">
     <div class="modal-header">
-      <h3 class="modal-title"><i class="fas fa-undo" style="color:var(--coral);"></i> Refund Requests</h3>
+      <h3 class="modal-title with-count">
+        <span><i class="fas fa-undo" style="color:var(--coral);"></i> Refund Requests</span>
+        <span class="count-chip" id="org-refunds-count"></span>
+      </h3>
       <button class="modal-close" aria-label="Close">&times;</button>
     </div>
     <div class="page-filters" style="margin-bottom:1.25rem;">
+      <div class="filter-group" style="flex:2;">
+        <label class="filter-label"><i class="fas fa-search"></i> Search</label>
+        <input type="text" id="org-refund-search" class="filter-input"
+               placeholder="Buyer, email, event, ticket ID…" oninput="app.renderOrgRefunds()">
+      </div>
       <div class="filter-group">
-        <label class="filter-label">Status</label>
-        <select id="org-refund-filter" class="filter-input" onchange="app.loadOrganizerRefunds()">
-          <option value="all">All</option><option value="pending">Pending</option>
-          <option value="approved">Approved</option><option value="rejected">Rejected</option>
+        <label class="filter-label"><i class="fas fa-calendar-alt"></i> Event</label>
+        <select id="org-refund-event-filter" class="filter-input" onchange="app.renderOrgRefunds()">
+          <option value="all">All events</option>
         </select>
       </div>
+      <div class="filter-group">
+        <label class="filter-label"><i class="fas fa-filter"></i> Status</label>
+        <select id="org-refund-filter" class="filter-input" onchange="app.renderOrgRefunds()">
+          <option value="all">All</option>
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label class="filter-label"><i class="fas fa-calendar"></i> From</label>
+        <input type="date" id="org-refund-start" class="filter-input" onchange="app.renderOrgRefunds()">
+      </div>
+      <div class="filter-group">
+        <label class="filter-label"><i class="fas fa-calendar"></i> To</label>
+        <input type="date" id="org-refund-end" class="filter-input" onchange="app.renderOrgRefunds()">
+      </div>
+      <div class="filter-actions">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="app.clearOrgRefundFilters()">
+          <i class="fas fa-times"></i> Clear
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="app.exportOrgRefunds()">
+          <i class="fas fa-file-csv"></i> CSV
+        </button>
+      </div>
     </div>
-    <div id="org-refunds-list"><div class="loading-placeholder"><div class="spinner"></div></div></div>
+    <div id="org-refunds-list">
+      <div class="loading-placeholder"><div class="spinner"></div></div>
+    </div>
   </div>
 </div>
 

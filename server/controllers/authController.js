@@ -128,3 +128,21 @@ exports.deactivateAccount = async (req, res, next) => {
     next(err);
   }
 };
+
+// Schedules the account for permanent deletion (30-day grace by default).
+// The user can cancel by signing in before the deadline. The actual anonymize
+// runs via cron — see jobs/processScheduledDeletions.js.
+exports.deleteAccount = async (req, res, next) => {
+  try {
+    const { password, confirm } = req.body || {};
+    const result = await userService.deleteAccount(req.user.id, password, confirm);
+    logService.audit(req.user.email, 'delete_account_scheduled', req.user.email, {
+      type: 'danger', adminId: req.user.id,
+      scheduledFor: result.scheduledFor,
+      ...ctx(req),
+    });
+    res.json(result);   // { scheduledFor, graceDays }
+  } catch (err) {
+    next(err);
+  }
+};
