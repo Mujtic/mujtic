@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Glycr — Event Ticketing</title>
+  <title>Mujtic — Event Ticketing</title>
   <link rel="icon" sizes="32x32" href="public/img/m-favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <!-- FA upgraded from 6.0.0-beta3 to 6.5.1 — needed for fa-threads and reliable fa-x-twitter -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -16,7 +17,7 @@
     (function () {
       var t = 'light';
       try {
-        var saved = localStorage.getItem('glycr_theme');
+        var saved = localStorage.getItem('mujtic_theme');
         if (saved === 'dark' || saved === 'light') {
           t = saved;
         } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
@@ -58,7 +59,7 @@
 <!-- ===== NAVBAR ===== -->
 <nav class="navbar">
   <a class="nav-logo" id="logo-home" href="/">
-    <img class="logo-img logo-img--light" src="public/img/logo-light.svg" alt="Your Company">
+    <img class="logo-img logo-img--light" src="public/img/logo-light.svg" alt="Mujtic">
     <img class="logo-img logo-img--dark"  src="public/img/logo-dark.svg"  alt="" aria-hidden="true">
   </a>
   <ul class="nav-links" id="navMenu" role="menubar">
@@ -182,7 +183,7 @@
         <span class="hero-badge-live"></span>
       </div>
       <h1 class="about-title">Built for Ghana's <span style="color:var(--teal);">Vibrant</span> Event Scene</h1>
-      <p class="about-subtitle">Glycr connects event creators with audiences across Ghana — from Accra's music festivals to Kumasi's cultural celebrations.</p>
+      <p class="about-subtitle">Mujtic connects event creators with audiences across Ghana — from Accra's music festivals to Kumasi's cultural celebrations.</p>
     </div>
   </div>
   <div class="about-grid">
@@ -215,7 +216,7 @@
   </div>
   <div class="about-contact-cta">
     <h2>Ready to create your event?</h2>
-    <p>Join thousands of organizers already using Glycr.</p>
+    <p>Join thousands of organizers already using Mujtic.</p>
     <button class="btn btn-primary" onclick="app.openModal('auth-modal')"><i class="fas fa-plus"></i> Get Started Free</button>
   </div>
 </section>
@@ -613,24 +614,25 @@
   <div class="footer-top">
     <div class="footer-brand">
       <a class="footer-logo" id="logo-home" href="/">
-        <img class="logo-img logo-img--light" src="public/img/logo-light.svg" alt="Your Company">
+        <img class="logo-img logo-img--light" src="public/img/logo-light.svg" alt="Mujtic">
         <img class="logo-img logo-img--dark"  src="public/img/logo-dark.svg"  alt="" aria-hidden="true">
       </a>
       <p class="footer-desc">Ghana's premier event ticketing platform. Connecting event creators with audiences across the country — from Accra to Tamale.</p>
       <div class="footer-social">
-        <a href="#" aria-label="Facebook" class="social-link"><i class="fab fa-facebook-f"></i></a>
-        <a href="#" aria-label="Twitter/X" class="social-link"><i class="fab fa-x-twitter"></i></a>
-        <a href="#" aria-label="Instagram" class="social-link"><i class="fab fa-instagram"></i></a>
-        <a href="#" aria-label="LinkedIn" class="social-link"><i class="fab fa-linkedin-in"></i></a>
-        <a href="#" aria-label="TikTok" class="social-link"><i class="fab fa-tiktok"></i></a>
-        <a href="#" aria-label="YouTube" class="social-link"><i class="fab fa-youtube"></i></a>
+        <a href="https://www.facebook.com/mujtic" target="_blank" rel="noopener noreferrer" aria-label="Facebook" class="social-link"><i class="fab fa-facebook-f"></i></a>
+        <a href="https://x.com/mujtic" target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)" class="social-link"><i class="fab fa-x-twitter"></i></a>
+        <a href="https://www.instagram.com/mujtic" target="_blank" rel="noopener noreferrer" aria-label="Instagram" class="social-link"><i class="fab fa-instagram"></i></a>
+        <a href="https://www.threads.net/@mujtic" target="_blank" rel="noopener noreferrer" aria-label="Threads" class="social-link"><i class="fab fa-threads"></i></a>
+        <a href="https://www.linkedin.com/company/mujtic" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn" class="social-link"><i class="fab fa-linkedin-in"></i></a>
+        <a href="https://www.tiktok.com/@mujtic" target="_blank" rel="noopener noreferrer" aria-label="TikTok" class="social-link"><i class="fab fa-tiktok"></i></a>
+        <a href="https://www.youtube.com/@mujtic" target="_blank" rel="noopener noreferrer" aria-label="YouTube" class="social-link"><i class="fab fa-youtube"></i></a>
       </div>
     </div>
     <div class="footer-links-group">
       <h4 class="footer-heading">Platform</h4>
       <ul>
         <li><a href="#" onclick="app.showSection('home')">Browse Events</a></li>
-        <li><a href="#" onclick="app.showSection('about-page')">About Glycr</a></li>
+        <li><a href="#" onclick="app.showSection('about-page')">About Mujtic</a></li>
         <li><a href="#" onclick="app.showSection('help-page')">Help Center</a></li>
         <li><a href="#" onclick="app.openModal('auth-modal')">Create Account</a></li>
       </ul>
@@ -667,7 +669,7 @@
     </div>
   </div>
   <div class="footer-bottom">
-    <p class="footer-copy">© <span id="footer-year"></span> Glycr Technologies Ltd. All rights reserved.</p>
+    <p class="footer-copy">© <span id="footer-year">2025 - 2026</span> Mujtic Technologies Ltd. All rights reserved.</p>
     <div class="footer-bottom-links">
       <a href="#" onclick="app.openModal('terms-modal')">Terms</a>
       <a href="#" onclick="app.openModal('privacy-modal')">Privacy</a>
@@ -1030,7 +1032,7 @@
       <h3 class="modal-title"><i class="fas fa-paper-plane" style="color:var(--teal);"></i> Transfer Ticket</h3>
       <button class="modal-close" aria-label="Close">&times;</button>
     </div>
-    <p style="font-size:0.83rem; color:var(--muted); margin-bottom:1.25rem; line-height:1.6;">Transfer this ticket to another Glycr user. The recipient will receive a confirmation email and their own QR code.</p>
+    <p style="font-size:0.83rem; color:var(--muted); margin-bottom:1.25rem; line-height:1.6;">Transfer this ticket to another Mujtic user. The recipient will receive a confirmation email and their own QR code.</p>
     <input type="hidden" id="transfer-ticket-id">
     <div class="transfer-ticket-info" id="transfer-ticket-info-display"></div>
     <div class="form" style="margin-top:1rem;">
@@ -1329,19 +1331,10 @@
           </select>
         </div>
       </div>
-      <div class="form-field" id="event-fee-wrap">
-        <label class="form-label"><i class="fas fa-percent"></i> Who Pays the Platform Fee?</label>
-        <select id="event-fee-paid-by" class="input">
-          <option value="">Use platform default</option>
-          <option value="organizer">Organizer pays — deducted from my sales</option>
-          <option value="buyer">Buyer pays — added at checkout</option>
-        </select>
-        <p id="event-fee-note" style="font-size:0.73rem; color:var(--muted); margin-top:0.3rem;">Leave as default to use the platform-wide setting. If you pay, the fee is deducted from your sales. If the buyer pays, it is added to the ticket price at checkout. This is locked once the first ticket is sold.</p>
-      </div>
 
       <div class="form-field">
         <label class="form-label"><i class="fas fa-clock"></i> Schedule Publication (optional)</label>
-        <input type="datetime-local" id="event-publish-at" class="input">
+        <input type="datetime-local" id="event-publish-at" class="input" min="">
         <p style="font-size:0.73rem; color:var(--muted); margin-top:0.3rem;">Leave empty to publish immediately.</p>
       </div>
       <div class="form-field">
@@ -1373,7 +1366,12 @@
         </div>
       </div>
       <div class="form-field"><label class="form-label">Event Image</label>
-        <label class="file-drop" for="event-image"><input type="file" id="event-image" accept="image/*">Click to upload image (JPG, PNG, WebP)</label>
+        <label class="file-drop" for="event-image">
+          <input type="file" id="event-image" accept="image/*">
+          <span id="event-image-label">Click to upload image (JPG, PNG, WebP)</span>
+          <img id="event-image-preview" alt="Preview"
+               style="display:none; max-width:100%; max-height:160px; margin-top:0.6rem; border-radius:6px; border:1px solid var(--border);">
+        </label>
       </div>
       <div style="margin-top:0.25rem;">
         <p class="form-label" style="margin-bottom:0.75rem;">Ticket Types</p>
@@ -1469,7 +1467,7 @@
 
     <!-- Notifications -->
     <div class="settings-panel" id="settings-tab-notifications">
-      <p class="settings-hint">Choose how Glycr reminds you about your events.</p>
+      <p class="settings-hint">Choose how Mujtic reminds you about your events.</p>
       <label class="checkbox-row"><input type="checkbox" id="notify-email" checked> Email reminders</label>
       <label class="checkbox-row" style="margin-top:0.6rem;"><input type="checkbox" id="notify-sms" checked> SMS reminders</label>
       <button type="button" class="btn btn-primary btn-block" style="margin-top:1.25rem;" onclick="app.saveNotificationPrefs()">Save Preferences</button>
@@ -1477,7 +1475,7 @@
 
     <!-- Appearance -->
     <div class="settings-panel" id="settings-tab-appearance">
-      <p class="settings-hint">Pick how Glycr looks on this device.</p>
+      <p class="settings-hint">Pick how Mujtic looks on this device.</p>
       <div class="theme-options">
         <button type="button" class="theme-choice" data-theme="light"  onclick="app.setThemePref('light')"><i class="fas fa-sun"></i> Light</button>
         <button type="button" class="theme-choice" data-theme="dark"   onclick="app.setThemePref('dark')"><i class="fas fa-moon"></i> Dark</button>
@@ -1700,13 +1698,13 @@
     <div class="modal-header"><h3 class="modal-title">Terms of Service</h3><button class="modal-close" aria-label="Close">&times;</button></div>
     <div class="legal-content">
       <p><strong>Last updated:</strong> <span id="terms-date"></span></p>
-      <h4>1. Acceptance of Terms</h4><p>By accessing or using Glycr, you agree to be bound by these Terms of Service.</p>
-      <h4>2. Use of the Platform</h4><p>You may use Glycr only for lawful purposes. You agree not to create or sell fraudulent tickets, misrepresent events, or engage in harmful conduct.</p>
+      <h4>1. Acceptance of Terms</h4><p>By accessing or using Mujtic, you agree to be bound by these Terms of Service.</p>
+      <h4>2. Use of the Platform</h4><p>You may use Mujtic only for lawful purposes. You agree not to create or sell fraudulent tickets, misrepresent events, or engage in harmful conduct.</p>
       <h4>3. Organizer Responsibilities</h4><p>Organizers are solely responsible for events they create, including compliance with local laws, accurate event details, and honouring tickets sold through the platform.</p>
-      <h4>4. Platform Fees</h4><p>Glycr charges a platform fee on ticket sales: a percentage of each order, and in some cases a minimum fee per order. For each event, the fee is either deducted from the organiser's sales or added to the ticket price as a service fee at checkout. A service fee is always shown to the buyer before they pay. Current rates are displayed on the organiser dashboard. Fees are subject to change with 30 days' notice. A change applies only to tickets sold after it takes effect, never to tickets already sold.</p>
-      <h4>5. Refunds & Cancellations</h4><p>Refund policies are set by event organizers. Glycr facilitates refunds but is not responsible for refund disputes between organizers and attendees.</p>
-      <h4>6. Intellectual Property</h4><p>All content on Glycr, including logos, designs, and software, is owned by Glycr Technologies Ltd and protected by copyright law.</p>
-      <h4>7. Limitation of Liability</h4><p>Glycr is not liable for any indirect, incidental, or consequential damages arising from your use of the platform.</p>
+      <h4>4. Platform Fees</h4><p>Mujtic charges a platform fee on ticket sales: a percentage of each order, and in some cases a minimum fee per order. For each event, the fee is either deducted from the organiser's sales or added to the ticket price as a service fee at checkout. A service fee is always shown to the buyer before they pay. Current rates are displayed on the organiser dashboard. Fees are subject to change with 30 days' notice. A change applies only to tickets sold after it takes effect, never to tickets already sold.</p>
+      <h4>5. Refunds & Cancellations</h4><p>Refund policies are set by event organizers. Mujtic facilitates refunds but is not responsible for refund disputes between organizers and attendees.</p>
+      <h4>6. Intellectual Property</h4><p>All content on Mujtic, including logos, designs, and software, is owned by Mujtic Technologies Ltd and protected by copyright law.</p>
+      <h4>7. Limitation of Liability</h4><p>Mujtic is not liable for any indirect, incidental, or consequential damages arising from your use of the platform.</p>
       <h4>8. Governing Law</h4><p>These Terms are governed by the laws of the Republic of Ghana.</p>
     </div>
   </div>
@@ -1717,12 +1715,12 @@
     <div class="modal-header"><h3 class="modal-title">Privacy Policy</h3><button class="modal-close" aria-label="Close">&times;</button></div>
     <div class="legal-content">
       <p><strong>Last updated:</strong> <span id="privacy-date"></span></p>
-      <h4>1. Information We Collect</h4><p>We collect information you provide (name, email, phone), payment data, and usage data when you interact with Glycr.</p>
+      <h4>1. Information We Collect</h4><p>We collect information you provide (name, email, phone), payment data, and usage data when you interact with Mujtic.</p>
       <h4>2. How We Use Your Information</h4><p>We use your data to process ticket purchases, send event notifications, improve our platform, and comply with legal obligations.</p>
       <h4>3. Data Sharing</h4><p>We share your data with event organizers (for events you attend), payment processors, and as required by law. We do not sell your personal data.</p>
       <h4>4. Data Security</h4><p>We implement industry-standard security measures including encryption and secure data storage to protect your information.</p>
-      <h4>5. Your Rights</h4><p>You have the right to access, correct, or delete your personal data. Contact privacy@glycr.com.</p>
-      <h4>6. Contact</h4><p>For privacy questions, contact us at privacy@glycr.com</p>
+      <h4>5. Your Rights</h4><p>You have the right to access, correct, or delete your personal data. Contact privacy@mujtic.com.</p>
+      <h4>6. Contact</h4><p>For privacy questions, contact us at privacy@mujtic.com</p>
     </div>
   </div>
 </div>
@@ -1731,8 +1729,8 @@
   <div class="modal-box wide">
     <div class="modal-header"><h3 class="modal-title">Refund Policy</h3><button class="modal-close" aria-label="Close">&times;</button></div>
     <div class="legal-content">
-      <h4>General Refund Policy</h4><p>Refund eligibility is determined by the event organizer's policy set at the time of purchase. Glycr facilitates but does not guarantee refunds.</p>
-      <h4>Event Cancellations</h4><p>If an organizer cancels an event, all ticket holders are entitled to a full refund. Glycr will process these automatically within 5–7 business days.</p>
+      <h4>General Refund Policy</h4><p>Refund eligibility is determined by the event organizer's policy set at the time of purchase. Mujtic facilitates but does not guarantee refunds.</p>
+      <h4>Event Cancellations</h4><p>If an organizer cancels an event, all ticket holders are entitled to a full refund. Mujtic will process these automatically within 5–7 business days.</p>
       <h4>Attendee-Initiated Refunds</h4><p>Refund requests must be submitted through your Profile > Purchase History before the refund window closes.</p>
       <h4>Service Fees</h4><p>If an organiser cancels an event, you receive a full refund of everything you paid, including any service fee added at checkout. For refunds you request yourself, a service fee added at checkout is not refundable; the ticket price is.</p>
       <h4>Processing Time</h4><p>Approved refunds are processed within 5–10 business days depending on payment method.</p>
@@ -1744,7 +1742,7 @@
   <div class="modal-box" style="max-width:500px;">
     <div class="modal-header"><h3 class="modal-title">Cookie Policy</h3><button class="modal-close" aria-label="Close">&times;</button></div>
     <div class="legal-content">
-      <h4>What are Cookies?</h4><p>Cookies are small text files stored on your device when you visit Glycr.</p>
+      <h4>What are Cookies?</h4><p>Cookies are small text files stored on your device when you visit Mujtic.</p>
       <h4>How We Use Cookies</h4><p>We use cookies for authentication, preferences, analytics, and to improve your experience.</p>
       <h4>Managing Cookies</h4><p>You can disable cookies in your browser settings, but this may affect platform functionality.</p>
     </div>

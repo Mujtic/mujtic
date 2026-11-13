@@ -76,12 +76,28 @@ class EventService {
     // services/scheduler.js flips isPublished → true when publishAt arrives.
     let publishAt = null;
     let isPublished = true;
-    if (clean.publishAt) {
-      const parsed = new Date(clean.publishAt);
-      if (isNaN(parsed)) throw new AppError('Invalid publish date', 400);
-      if (parsed > new Date()) {
-        publishAt = parsed;
-        isPublished = false;
+    if (clean.publishAt !== undefined) {
+      if (clean.publishAt === null || clean.publishAt === '') {
+        clean.publishAt = null;
+        // Clearing the schedule: leave isPublished alone. If the event is
+        // already live, it stays live. If it's still a draft, the organizer
+        // can publish manually via togglePublish. Auto-publishing a draft
+        // because the user cleared the schedule would be surprising.
+      } else {
+        const parsed = new Date(clean.publishAt);
+        if (isNaN(parsed)) throw new AppError('Invalid publish date', 400);
+        if (parsed > new Date()) {
+          // Future schedule → force draft. The cron job publishes it when
+          // the time arrives. This also un-publishes a live event if the
+          // organizer schedules it, which matches intent.
+          clean.publishAt = parsed;
+          clean.isPublished = false;
+        } else {
+          // Past publishAt submitted — treat as "publish now" and drop the
+          // dead timestamp so the scheduler never queries it.
+          clean.publishAt = null;
+          clean.isPublished = true;
+        }
       }
     }
 
@@ -229,6 +245,11 @@ class EventService {
       throw new AppError('Cannot publish a cancelled event', 400);
     }
     event.isPublished = !event.isPublished;
+    // Manually publishing a scheduled draft consumes the schedule — drop the
+    // stale timestamp so the cron job doesn't leave a phantom publishAt on
+    // a live event. Unpublishing keeps publishAt = null (the organizer can
+    // re-schedule via the edit form if they want).
+    if (event.isPublished) event.publishAt = null;
     await event.save();
     return event;
   }

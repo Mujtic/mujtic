@@ -2,7 +2,7 @@
    MUJTIC — generative PDF ticket (v2)
    Drop-in for the jsPDF ticket in app.js. No edits to app.js:
    load this file AFTER app.js and it replaces these methods on
-   GlycrApp.prototype:
+   MujticApp.prototype:
      _generateTicketPDF, downloadTicketPDF, downloadTicketPDFById
    and adds _generateTicketsPDF (one PDF page per ticket).
 
@@ -303,7 +303,7 @@
   root.MujticTicketPdf = api;
 
   // ---------- wire into the app (browser only) ----------
-  if (typeof GlycrApp === 'undefined') return;
+  if (typeof MujticApp === 'undefined') return;
 
   // event image, cover-cropped to the banner and darkened so the white text stays readable
   function loadBanner(app, event) {
@@ -327,7 +327,7 @@
     });
   }
 
-  Object.assign(GlycrApp.prototype, {
+  Object.assign(MujticApp.prototype, {
     async _generateTicketPDF(ticket, event) { return this._generateTicketsPDF([ticket], event); },
 
     // one page per ticket; a group ticket (5+) is one page with one shared QR

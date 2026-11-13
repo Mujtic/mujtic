@@ -5,16 +5,22 @@ const optionalAuth = require('../middleware/optionalAuth');
 const requireCronSecretOrAdmin = require('../middleware/cronAuth');
 
 // ── Scheduled jobs ──
-// optionalAuth: lets a scheduler call without a JWT, while still populating
-// req.user when an admin hits it from the browser.
-// requireCronSecretOrAdmin: 403s anything that is neither an admin nor
-// carrying the correct X-Cron-Secret. Without this, the endpoint would let
-// anyone on the internet trigger bulk user anonymization.
+// Both endpoints use the same auth gate: X-Cron-Secret header or admin JWT.
+// optionalAuth populates req.user when a JWT is present; requireCronSecretOrAdmin
+// then allows either path through.
+
 router.post(
   '/cron/process-deletions',
   optionalAuth,
   requireCronSecretOrAdmin,
   cronController.processScheduledDeletions
+);
+
+router.post(
+  '/cron/publish-events',
+  optionalAuth,
+  requireCronSecretOrAdmin,
+  cronController.publishScheduledEvents
 );
 
 module.exports = router;

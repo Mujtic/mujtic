@@ -1,5 +1,5 @@
 /* ============================================================
-   GLYCR — COMPLETE STYLESHEET v3
+   MUJTIC — COMPLETE STYLESHEET v3
    Palette: Deep teal/slate base · Coral accent · Mint success
    Fonts: Syne (display) · Outfit (body) · JetBrains Mono (data)
 ============================================================ */
@@ -983,7 +983,7 @@ select.input option, select.input optgroup { background: var(--bg-3); color: var
 .pmeth-btn:hover, .pmeth-btn.active { border-color: var(--teal); background: var(--teal-glow); color: var(--text); }
 
 /* ============================================================
-   TICKET QR — FIX: always black on white, no CSS invert
+   TICKET QR — always black on white, no CSS invert
 ============================================================ */
 .ticket-display { text-align: center; }
 .ticket-display h3 { font-family: 'Syne', sans-serif; font-size: 1.3rem; color: var(--bright); margin-bottom: 1.5rem; }
@@ -993,7 +993,6 @@ select.input option, select.input optgroup { background: var(--bg-3); color: var
   background: #ffffff; border-radius: var(--radius);
   padding: 8px; display: inline-block;
 }
-/* FIXED: removed the broken invert filter — QR always renders black-on-white inside white bg */
 .ticket-canvas canvas { border-radius: 4px; display: block; }
 .ticket-id-mono { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: var(--muted); word-break: break-all; padding: 0.65rem; background: var(--bg); border-radius: var(--radius); margin: 1rem 0; }
 
@@ -1230,7 +1229,6 @@ input[type="file"] { display: none; }
     position: absolute; top: 64px; left: 0; right: 0;
     background: var(--bg-2); border-bottom: 1px solid var(--border);
     padding: 0.75rem 1.25rem; gap: 0.15rem; z-index: 400;
-    /* Slide animation */
     transform: translateY(-10px); opacity: 0;
     transition: transform 0.25s var(--ease), opacity 0.25s var(--ease);
     pointer-events: none;

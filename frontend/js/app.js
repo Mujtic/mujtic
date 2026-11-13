@@ -16,7 +16,7 @@ const SUCCESS_TOASTS = [
   ['POST',   /^\/auth\/forgot-password$/,            'If that email exists, a reset link has been sent'],
   ['POST',   /^\/auth\/reset-password$/,             'Password reset. You can sign in now'],
   ['POST',   /^\/service-requests$/,                 'Message sent. We\'ll reply within 2–4 hours'],
-  ['POST',   /^\/newsletter\/subscribe$/,            'You\'re subscribed to the Glycr newsletter'],
+  ['POST',   /^\/newsletter\/subscribe$/,            'You\'re subscribed to the Mujtic newsletter'],
   ['POST',   /^\/waitlists$/,                        'You\'re on the waitlist'],
   ['POST',   /^\/events\/[^/]+\/waitlists\/notify$/, 'Waitlist notified'],
   ['POST',   /^\/coupons\/validate$/,                'Promo code applied'],
@@ -36,13 +36,12 @@ const SUCCESS_TOASTS = [
   ['DELETE', /^\/staff\/[^/]+$/,                     'Staff member removed'],
 ];
 
-// Glycr App — v3 (Admin Panel Pattern - Full Data Refresh)
-class GlycrApp {
+// Mujtic App — v3 (Organizer Dashboard Pattern - Full Data Refresh)
+class MujticApp {
   constructor() {
 
-    const cfg = window.GLYCR_CONFIG || {};
-    const isDev = ['', 'localhost', '127.0.0.1'].includes(location.hostname);
-    this.apiBase   = (cfg.apiBase || (isDev ? 'http://localhost:5040/api' : '/api')).replace(/\/$/, '');
+    const cfg = window.MUJTIC_CONFIG || {};
+    this.apiBase   = (cfg.apiBase || '/api').replace(/\/$/, '');
     this.apiOrigin = this.apiBase.replace(/\/api$/, '');
 
     // ── Fee settings (two independent tracks) ──────────────────
@@ -62,7 +61,7 @@ class GlycrApp {
 
     this.currentUser = null;
 
-    // CENTRAL DATA STORES (Admin Panel Pattern)
+    // CENTRAL DATA STORES (Organizer Dashboard Pattern)
     this.allEvents = [];        // ALL events from backend
     this.userTickets = [];      // User's purchased tickets
     this.orgEvents = [];        // Organizer's events (if organizer)
@@ -74,8 +73,8 @@ class GlycrApp {
 
     // UI State
     this.events = [];           // Paginated events for home page
-    this.favorites = this.loadFromStorage('glycr_favorites') || {};
-    this.shares = this.loadFromStorage('glycr_shares') || {};
+    this.favorites = this.loadFromStorage('mujtic_favorites') || {};
+    this.shares = this.loadFromStorage('mujtic_shares') || {};
     this.currentEventId = null;
     this.selectedTicket = null;
     this.selectedTicketType = null;
@@ -96,9 +95,9 @@ class GlycrApp {
     this.currentEventsPage = 1;
     this.hasMoreEvents = true;
     this.isLoadingEvents = false;
-    this.notifications = this.loadFromStorage('glycr_notifications') || [];
-    this.reminders = this.loadFromStorage('glycr_reminders') || [];
-    this.reviews = this.loadFromStorage('glycr_reviews') || [];
+    this.notifications = this.loadFromStorage('mujtic_notifications') || [];
+    this.reminders = this.loadFromStorage('mujtic_reminders') || [];
+    this.reviews = this.loadFromStorage('mujtic_reviews') || [];
     this.currentRating = 0;
     this._modalFocusTrap = null;
     this._previousFocus = null;
@@ -117,18 +116,18 @@ class GlycrApp {
 
     this.faqs = [
       { cat: 'tickets', q: 'How do I get my ticket after purchase?', a: 'Your ticket is generated instantly after payment. You can download it as a PDF from the ticket modal, or access it anytime from your Profile → Purchase History.' },
-      { cat: 'tickets', q: 'Can I transfer my ticket to someone else?', a: 'Yes! You can request a ticket transfer from your Profile → Purchase History. Click the Transfer button next to eligible tickets and enter the recipient\'s Glycr account email.' },
+      { cat: 'tickets', q: 'Can I transfer my ticket to someone else?', a: 'Yes! You can request a ticket transfer from your Profile → Purchase History. Click the Transfer button next to eligible tickets and enter the recipient\'s Mujtic account email.' },
       { cat: 'tickets', q: 'What if I lose my ticket?', a: 'You can re-download your ticket at any time from your Profile → Purchase History. The unique QR code remains valid.' },
       { cat: 'payments', q: 'What payment methods are accepted?', a: 'We accept Mobile Money (MTN MoMo) and debit/credit cards via Stripe.' },
       { cat: 'payments', q: 'How long does payment processing take?', a: 'Mobile money payments are near-instant. Card payments may take 1–2 minutes. You will receive a confirmation email once complete.' },
       { cat: 'payments', q: 'Is my payment information secure?', a: 'Yes. All payments are encrypted using industry-standard TLS. We never store your card details on our servers.' },
       { cat: 'organizers', q: 'How do I create an event?', a: 'Sign up as an organiser, then use the Dashboard → New Event button. Fill in event details, set ticket types, and publish.' },
       { cat: 'organizers', q: 'When do I receive my payout?', a: 'Payouts are processed within 2–5 business days after your event. You can request a payout from your Dashboard or Payouts page.' },
-      { cat: 'organizers', q: 'What fees does Glycr charge?', a: 'Two fees. A platform fee — a percentage of each ticket\'s face value, with a possible minimum per order — is deducted from your payout. A processing fee — a percentage of the ticket value, with a possible minimum per order — is added to the ticket price at checkout and is always paid by the buyer; it is never deducted from you. Both rates are shown on your Dashboard. There are no setup or listing fees.' },
+      { cat: 'organizers', q: 'What fees does Mujtic charge?', a: 'Two fees. A platform fee — a percentage of each ticket\'s face value, with a possible minimum per order — is deducted from your payout. A processing fee — a percentage of the ticket value, with a possible minimum per order — is added to the ticket price at checkout and is always paid by the buyer; it is never deducted from you. Both rates are shown on your Dashboard. There are no setup or listing fees.' },
       { cat: 'organizers', q: 'Can I schedule when my event goes live?', a: 'Yes! In the event creation form, use the "Schedule Publication" field to set a future date and time for your event to go live.' },
       { cat: 'refunds', q: 'How do I request a refund?', a: 'Go to Profile → Purchase History and click "Request Refund" next to the ticket. Fill in the reason and submit. The organiser will review within 48 hours.' },
       { cat: 'refunds', q: 'How long do refunds take?', a: 'Once approved by the organiser, refunds are processed within 5–10 business days depending on your payment method.' },
-      { cat: 'refunds', q: 'What if the event is cancelled?', a: 'If an organiser cancels an event, all ticket holders are automatically refunded in full, including the processing fee you paid at checkout. Glycr will process these within 5–7 business days.' },
+      { cat: 'refunds', q: 'What if the event is cancelled?', a: 'If an organiser cancels an event, all ticket holders are automatically refunded in full, including the processing fee you paid at checkout. Mujtic will process these within 5–7 business days.' },
       { cat: 'refunds', q: 'Is the processing fee refundable?', a: 'Yes. Refunds include both the ticket price and the processing fee added at checkout — whether the event was cancelled by the organiser or your own refund request was approved. You receive the full amount you paid.' },
       { cat: 'account', q: 'How do I reset my password?', a: 'Click "Forgot Password?" on the Sign In page, enter your email, and follow the link sent to your inbox.' },
       { cat: 'account', q: 'Can I have both an attendee and organiser account?', a: 'Yes! You can enable the organiser role from your account settings or by checking "I\'m an event organiser" during registration.' },
@@ -399,7 +398,7 @@ class GlycrApp {
     this._loadAllPromise = (async () => {
       const jobs = [this.loadEvents()];
       if (this.currentUser) jobs.push(this.loadUserTickets(), this.loadUserPrefs());
-      if (this.currentUser?.isOrganizer) jobs.push(this.loadOrgEvents(), this.loadPayouts(), this.loadOrgRefunds(), this.loadOrgSummary(), this.loadOrgReviews(),  );
+      if (this.currentUser?.isOrganizer) jobs.push(this.loadOrgEvents(), this.loadPayouts(), this.loadOrgRefunds(), this.loadOrgSummary(), this.loadOrgReviews());
       const res = await Promise.allSettled(jobs);
       res.filter(r => r.status === 'rejected').forEach(r => console.error(r.reason));
       if (res.some(r => r.status === 'rejected')) this.showToast('Some data failed to load. Try refreshing.', 'warning');
@@ -531,7 +530,13 @@ class GlycrApp {
 
   // ─── Init ─────────────────────────────────────────────────
   async init() {
-    document.getElementById('footer-year').textContent = new Date().getFullYear();
+    // Copyright year — start year is fixed, current year auto-rolls.
+    // 2025 → "2025"; 2026+ → "2025 - <currentYear>"
+    const startYear = 2025;
+    const thisYear = new Date().getFullYear();
+    const yearEl = document.getElementById('footer-year');
+    if (yearEl) yearEl.textContent = thisYear > startYear ? `${startYear} - ${thisYear}` : `${startYear}`;
+
     const termsDate = document.getElementById('terms-date');
     const privDate  = document.getElementById('privacy-date');
     if (termsDate) termsDate.textContent = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -691,7 +696,7 @@ class GlycrApp {
       document.getElementById('help-form').reset();
     } catch (err) {
       s.className = 'status-msg error';
-      s.textContent = err.message || 'Could not send your message. Please try again or email support@glycr.com.';
+      s.textContent = err.message || 'Could not send your message. Please try again or email support@mujtic.com.';
     }
   }
 
@@ -703,7 +708,7 @@ class GlycrApp {
     s.style.display = 'block'; s.style.color = 'var(--muted)'; s.textContent = 'Subscribing…';
     try {
       await this.fetchApi('/newsletter/subscribe', { method: 'POST', body: JSON.stringify({ email }) });
-      s.style.color = 'var(--mint)'; s.textContent = '✓ Subscribed! Welcome to the Glycr community.';
+      s.style.color = 'var(--mint)'; s.textContent = '✓ Subscribed! Welcome to the Mujtic community.';
       document.getElementById('newsletter-email').value = '';
     }  catch (err) {
       s.style.color = 'var(--coral)';
@@ -713,7 +718,7 @@ class GlycrApp {
 
   clearAllNotifications() {
     this.notifications = [];
-    this.saveToStorage('glycr_notifications', this.notifications);
+    this.saveToStorage('mujtic_notifications', this.notifications);
     this.renderNotificationBadge();
     this.renderNotificationsPanel();
   }
@@ -942,11 +947,11 @@ class GlycrApp {
     const first = this.currentUser.name ? this.currentUser.name.split(' ')[0] : 'there';
     this.pushNotification({
       type: 'purchase',
-      text: isNewUser ? `Welcome to Glycr, ${first}! 🎉` : `Welcome back, ${first}! 👋`,
+      text: isNewUser ? `Welcome to Mujtic, ${first}! 🎉` : `Welcome back, ${first}! 👋`,
     });
     if (result.deletionCancelled) this.showSuccess('Welcome back — your account deletion has been cancelled.');
     else if (result.reactivated)  this.showSuccess('Welcome back. Your account has been reactivated.');
-    else this.showSuccess(isNewUser ? `Account created. Welcome to Glycr, ${first}!` : `Welcome back, ${first}!`);
+    else this.showSuccess(isNewUser ? `Account created. Welcome to Mujtic, ${first}!` : `Welcome back, ${first}!`);
   }
 
   logout(silent = false) {
@@ -1044,14 +1049,14 @@ class GlycrApp {
 
   // ─── Cookie Consent ───────────────────────────────────────
   initCookieBanner() {
-    const consent = localStorage.getItem('glycr_cookie_consent');
+    const consent = localStorage.getItem('mujtic_cookie_consent');
     if (consent !== null) return;
     const banner = document.getElementById('cookie-banner');
     if (banner) banner.style.display = 'block';
   }
 
   handleCookieChoice(accepted) {
-    localStorage.setItem('glycr_cookie_consent', accepted ? 'accepted' : 'rejected');
+    localStorage.setItem('mujtic_cookie_consent', accepted ? 'accepted' : 'rejected');
     const banner = document.getElementById('cookie-banner');
     if (banner) {
       banner.style.animation  = 'none';
@@ -1351,7 +1356,7 @@ class GlycrApp {
 
   removeReminder(id) {
     this.reminders = this.reminders.filter(r => r.id !== id);
-    this.saveToStorage('glycr_reminders', this.reminders);
+    this.saveToStorage('mujtic_reminders', this.reminders);
     this._loadRemindersTab();
     this.showSuccess('Reminder removed');
   }
@@ -1385,6 +1390,18 @@ class GlycrApp {
     return withTime
       ? x.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
       : x.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  // ISO/Date → "YYYY-MM-DDTHH:MM" in LOCAL time (what datetime-local wants)
+  _toLocalInput(v) {
+    if (!v) return '';
+    const d = new Date(v);
+    if (isNaN(d)) return '';
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  _nowLocalInput() {
+    return this._toLocalInput(new Date());
   }
 
   _asArray(r, ...keys) {
@@ -1684,7 +1701,7 @@ class GlycrApp {
     const id = this.currentEventId; if (!id) return;
     const url   = this.getEventUrl(id);
     const title = document.querySelector('.ep-title')?.textContent || 'this event';
-    if (navigator.share) navigator.share({ title, text: `Check out ${title} on Glycr!`, url }).catch(() => {});
+    if (navigator.share) navigator.share({ title, text: `Check out ${title} on Mujtic!`, url }).catch(() => {});
     else this.copyEventLink();
   }
 
@@ -1809,7 +1826,7 @@ class GlycrApp {
       box.querySelector('#ep-back-link')?.addEventListener('click', e => { e.preventDefault(); this.showSection('home'); });
 
       // Tab title + social meta (note: crawlers don't run JS)
-      document.title = `${event.title} — Glycr`;
+      document.title = `${event.title} — Mujtic`;
       this._setMeta('og:title', event.title);
       this._setMeta('og:description', (event.description || '').slice(0, 160));
       this._setMeta('og:image', img);
@@ -2066,13 +2083,13 @@ class GlycrApp {
       statusEl.className = 'status-msg success'; statusEl.innerHTML = `<strong>✓ ${qty} ticket${qty > 1 ? 's' : ''} purchased!</strong>`;
       const ev = await this.fetchApi(`/events/${this.selectedTicket.eventId}`);
       this.lastPurchasedEvent = ev;
-      this.sendSMS(phone, `Your Glycr tickets for ${ev.title} are ready!`);
+      this.sendSMS(phone, `Your Mujtic tickets for ${ev.title} are ready!`);
       this.sendEmail(email, `Your tickets for ${ev.title}`, `Hi! Your ${qty} ${this.selectedTicket.type.toUpperCase()} ticket(s) for ${ev.title} are confirmed.`);
 
       if (remind && this.currentUser) {
         const reminderId = 'REM-' + Math.random().toString(36).slice(2, 10).toUpperCase();
         this.reminders.push({ id: reminderId, userId: this.currentUser.id, eventId: ev._id, eventTitle: ev.title, eventDate: ev.date });
-        this.saveToStorage('glycr_reminders', this.reminders);
+        this.saveToStorage('mujtic_reminders', this.reminders);
       }
 
       this.pushNotification({ type: 'purchase', text: `You bought ${qty} ticket${qty > 1 ? 's' : ''} for ${ev.title}!` });
@@ -2512,7 +2529,7 @@ class GlycrApp {
     const n = { id: Date.now().toString(), ...notif, unread: true, time: new Date().toISOString() };
     this.notifications.unshift(n);
     if (this.notifications.length > 50) this.notifications = this.notifications.slice(0, 50);
-    this.saveToStorage('glycr_notifications', this.notifications);
+    this.saveToStorage('mujtic_notifications', this.notifications);
     this.renderNotificationBadge();
   }
 
@@ -2568,7 +2585,7 @@ class GlycrApp {
 
   markAllNotificationsRead() {
     this.notifications.forEach(n => n.unread = false);
-    this.saveToStorage('glycr_notifications', this.notifications);
+    this.saveToStorage('mujtic_notifications', this.notifications);
     this.renderNotificationBadge();
     this.renderNotificationsPanel();
   }
@@ -2680,10 +2697,26 @@ class GlycrApp {
     this.editingEvent = event;
     document.getElementById('event-form').reset();
     document.getElementById('form-title').textContent = event ? 'Edit Event' : 'Create Event';
+
+    // Reset the image upload label + preview. form.reset() clears the file
+    // input but leaves these DOM nodes unchanged, so a leftover preview from
+    // the previous edit would otherwise stick around.
+    const _imgLbl = document.getElementById('event-image-label');
+    const _imgPrv = document.getElementById('event-image-preview');
+    if (_imgLbl) _imgLbl.textContent = 'Click to upload image (JPG, PNG, WebP)';
+    if (_imgPrv) { _imgPrv.src = ''; _imgPrv.style.display = 'none'; }
+
     ['event-lat', 'event-lng', 'event-address'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     const searchInp = document.getElementById('maps-search-input'); if (searchInp) searchInp.value = '';
     const selInfo   = document.getElementById('maps-selected-info'); if (selInfo) selInfo.style.display = 'none';
     const mc        = document.getElementById('maps-container');    if (mc) mc.classList.remove('active');
+
+    // Publish schedule: block past dates on the CREATE path. On EDIT we leave
+    // min empty so an existing (possibly already-elapsed) publishAt still
+    // loads into the field instead of being rejected by the browser.
+    const _pubEl = document.getElementById('event-publish-at');
+    if (_pubEl) _pubEl.min = event ? '' : this._nowLocalInput();
+
     const defaultCurrency = (this.currentUser && this.currentUser.currency) || 'GHC';
     let headersDiv = document.querySelector('.ticket-type-headers');
     if (!headersDiv && document.getElementById('ticket-types-form')) {
@@ -2691,21 +2724,43 @@ class GlycrApp {
       headersDiv.innerHTML = `<span>Type</span><span>Price (₵)</span><span>Capacity</span><span>Early Bird ₵</span><span>Early Bird End</span><span>Min Qty</span><span>Discount %</span><span></span>`;
       document.getElementById('ticket-types-form').parentNode.insertBefore(headersDiv, document.getElementById('ticket-types-form'));
     }
+
     if (event) {
       document.getElementById('event-title').value     = event.title;
       document.getElementById('event-desc').value      = event.description;
-      document.getElementById('event-date').value      = event.date.slice(0, 16);
+      // Convert ISO UTC → local "YYYY-MM-DDTHH:MM" so the datetime-local input
+      // shows the correct time. slice(0,16) worked only because Ghana is UTC+0.
+      document.getElementById('event-date').value      = this._toLocalInput(event.date);
       document.getElementById('event-venue').value     = event.venue;
       document.getElementById('event-location').value  = event.location || '';
       document.getElementById('event-category').value  = event.category;
       document.getElementById('event-currency').value  = event.currency;
       document.getElementById('organizer-email').value = event.organizerEmail;
       document.getElementById('organizer-phone').value = event.organizerPhone;
-      if (event.publishAt) { const paEl = document.getElementById('event-publish-at'); if (paEl) paEl.value = event.publishAt.slice(0, 16); }
-      if (event.lat) { document.getElementById('event-lat').value = event.lat; document.getElementById('event-lng').value = event.lng; document.getElementById('event-address').value = event.address || ''; if (event.address && selInfo) { document.getElementById('maps-selected-address').textContent = event.address; selInfo.style.display = 'flex'; } }
+      if (event.publishAt && _pubEl) _pubEl.value = this._toLocalInput(event.publishAt);
+
+      if (event.lat) {
+        document.getElementById('event-lat').value = event.lat;
+        document.getElementById('event-lng').value = event.lng;
+        document.getElementById('event-address').value = event.address || '';
+        if (event.address && selInfo) {
+          document.getElementById('maps-selected-address').textContent = event.address;
+          selInfo.style.display = 'flex';
+        }
+      }
+
       const ttypes = this.parseTicketTypes(event.ticketTypes);
       document.getElementById('ticket-types-form').innerHTML = '';
-      Object.entries(ttypes).forEach(([type, data]) => this.addTicketTypeInput(type, data.price, data.capacity, data.earlyBirdPrice || '', data.earlyBirdEnd || '', data.groupDiscountMinQty || 5, data.groupDiscount || 0));
+      Object.entries(ttypes).forEach(([type, data]) =>
+        this.addTicketTypeInput(
+          type,
+          data.price,
+          data.capacity,
+          data.earlyBirdPrice || '',
+          data.earlyBirdEnd || '',
+          data.groupDiscountMinQty || 5,
+          data.groupDiscount || 0
+        ));
     } else {
       document.getElementById('ticket-types-form').innerHTML = '';
       this.addTicketTypeInput('free', 0, 100, '', '', 5, 0);
@@ -2721,6 +2776,17 @@ class GlycrApp {
 
   addTicketTypeInput(name = '', price = '', capacity = '', earlyBirdPrice = '', earlyBirdEnd = '', groupDiscountMinQty = '5', groupDiscount = '0') {
     const container = document.getElementById('ticket-types-form');
+
+    // datetime-local inputs reject "2026-11-13T14:39:00.000Z" (Z + seconds).
+    // Convert the DB value to local "YYYY-MM-DDTHH:MM" — otherwise the field
+    // renders empty and saving wipes the early-bird end.
+    const earlyEndValue = this._toLocalInput(earlyBirdEnd);
+
+    // Block past end-times on brand-new rows. On existing rows with a value
+    // we skip the min so an already-past earlyBirdEnd still loads (user can
+    // then consciously correct it instead of it silently disappearing).
+    const minNow = earlyEndValue ? '' : this._nowLocalInput();
+
     const div = document.createElement('div');
     div.className = 'ticket-type-row ticket-type';
     div.innerHTML = `
@@ -2728,13 +2794,12 @@ class GlycrApp {
       <input type="number"         class="input type-price"        placeholder="Price"    min="0" value="${esc(price)}">
       <input type="number"         class="input type-capacity"     placeholder="Capacity" min="1" value="${esc(capacity)}">
       <input type="number"         class="input type-early-price"  placeholder="Early ₵"  min="0" value="${esc(earlyBirdPrice)}">
-      <input type="datetime-local" class="input type-early-end"                                    value="${esc(earlyBirdEnd)}">
+      <input type="datetime-local" class="input type-early-end"    min="${esc(minNow)}" value="${esc(earlyEndValue)}">
       <input type="number"         class="input type-group-min"    placeholder="Min qty"  min="1" value="${esc(groupDiscountMinQty)}">
       <input type="number"         class="input type-group-disc"   placeholder="Disc %"   min="0" max="50" value="${esc(groupDiscount)}">
       <button type="button" class="remove-ticket" aria-label="Remove ticket type">✕</button>`;
     container.appendChild(div);
   }
-
   async saveEvent() {
     const title    = document.getElementById('event-title').value.trim();
     const orgEmail = document.getElementById('organizer-email').value.trim();
@@ -3171,7 +3236,7 @@ class GlycrApp {
     this._paintFavourite(eventId);
     try {
       await this.fetchApi('/users/favorites', { method: 'POST', body: JSON.stringify({ eventId, action }) });
-      this.saveToStorage('glycr_favorites', this.favorites);
+      this.saveToStorage('mujtic_favorites', this.favorites);
       this.showSuccess(action === 'add' ? 'Saved to favourites' : 'Removed from favourites');
     } catch (err) {
       if (action === 'add') list.splice(list.indexOf(eventId), 1); else list.push(eventId);
@@ -3247,10 +3312,14 @@ class GlycrApp {
     const per  = this.orgSummary?.perEvent;
     if (!per) return this.showWarning('Revenue figures are not loaded yet. Try again in a moment.');
     const doc  = new jsPDF();
-    const sym  = this.getCurrencySymbol((this.currentUser && this.currentUser.currency) || 'GHC');
+    const cur  = (this.currentUser && this.currentUser.currency) || 'GHC';
+    // jsPDF's built-in Helvetica cannot render the ₵ glyph, so GHC is printed
+    // as the string "GHC " here. Other currencies use their ASCII symbols.
+    const sym  = cur === 'GHC' ? 'GHC ' : this.getCurrencySymbol(cur);
+    const feeLabel = this._feeLabel().replace(/₵/g, 'GHC ');
     doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.text('My Events Report', 14, 16);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120);
-    doc.text(`Platform fee now: ${this._feeLabel()} · Generated: ${new Date().toLocaleString()}`, 14, 24);
+    doc.text(`Platform fee now: ${feeLabel} · Generated: ${new Date().toLocaleString()}`, 14, 24);
     const rows = events.map(e => {
       const p  = per[e._id] || { sold: 0, revenue: 0, net: 0 };
       const st = e.isCancelled ? 'Cancelled' : e.isPublished ? 'Published' : 'Draft';
@@ -3264,10 +3333,12 @@ class GlycrApp {
   exportPayoutsToPDF(payouts) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
-    const sym = this.getCurrencySymbol((this.currentUser && this.currentUser.currency) || 'GHC');
+    const cur = (this.currentUser && this.currentUser.currency) || 'GHC';
+    const sym = cur === 'GHC' ? 'GHC ' : this.getCurrencySymbol(cur);
+    const feeLabel = this._feeLabel().replace(/₵/g, 'GHC ');
     doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.text('Payout History', 14, 16);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120);
-    doc.text(`Platform fee now: ${this._feeLabel()} · Generated: ${new Date().toLocaleString()}`, 14, 24);
+    doc.text(`Platform fee now: ${feeLabel} · Generated: ${new Date().toLocaleString()}`, 14, 24);
     const rows = payouts.map(p => [`${sym}${p.amount}`, p.method, p.status, new Date(p.requestedAt).toLocaleDateString(), p.completedAt ? new Date(p.completedAt).toLocaleDateString() : '—']);
     doc.autoTable({ head: [['Amount', 'Method', 'Status', 'Requested', 'Completed']], body: rows, startY: 30, styles: { fontSize: 8 }, headStyles: { fillColor: [19, 26, 35], textColor: [204, 217, 227] } });
     doc.save(`payouts_${new Date().toISOString().slice(0, 10)}.pdf`);
@@ -3326,7 +3397,7 @@ class GlycrApp {
     const [favs, revs] = await Promise.allSettled([this.fetchApi('/users/favorites'), this.fetchApi('/reviews/my')]);
     if (favs.status === 'fulfilled') {
       this.favorites[uid] = this._list(favs.value.favorites || favs.value).map(f => typeof f === 'string' ? f : (f._id || f.eventId));
-      this.saveToStorage('glycr_favorites', this.favorites);
+      this.saveToStorage('mujtic_favorites', this.favorites);
     }
     if (revs.status === 'fulfilled') {
       const mine = this._list(revs.value).map(r => ({
@@ -3335,7 +3406,7 @@ class GlycrApp {
         rating: r.rating, text: r.text, createdAt: r.createdAt,
       }));
       this.reviews = [...this.reviews.filter(r => r.userId !== uid), ...mine];
-      this.saveToStorage('glycr_reviews', this.reviews);
+      this.saveToStorage('mujtic_reviews', this.reviews);
     }
   }
 
@@ -3421,13 +3492,13 @@ class GlycrApp {
   }
 
   setThemePref(pref) {
-    if (pref === 'system') { try { localStorage.removeItem('glycr_theme'); } catch {} this.applyTheme(this._getTheme()); }
+    if (pref === 'system') { try { localStorage.removeItem('mujtic_theme'); } catch {} this.applyTheme(this._getTheme()); }
     else this.applyTheme(pref, true);
     this._markThemeChoice();
   }
 
   _markThemeChoice() {
-    let saved = null; try { saved = localStorage.getItem('glycr_theme'); } catch {}
+    let saved = null; try { saved = localStorage.getItem('mujtic_theme'); } catch {}
     const cur = (saved === 'dark' || saved === 'light') ? saved : 'system';
     document.querySelectorAll('.theme-choice').forEach(b => b.classList.toggle('active', b.dataset.theme === cur));
   }
@@ -3712,6 +3783,40 @@ class GlycrApp {
         this._updateStars(this.currentRating);
       });
     });
+
+    // ── Event image upload feedback ──────────────────────────────────────
+    // The file input is visually hidden (display:none). Without this handler
+    // the user gets no indication that a file was picked until they publish.
+    const _evImgInput = document.getElementById('event-image');
+    if (_evImgInput && !_evImgInput._previewBound) {
+      _evImgInput._previewBound = true;
+      _evImgInput.addEventListener('change', () => {
+        const file = _evImgInput.files[0];
+        const labelEl = document.getElementById('event-image-label');
+        const prevEl  = document.getElementById('event-image-preview');
+
+        if (!file) {
+          if (labelEl) labelEl.textContent = 'Click to upload image (JPG, PNG, WebP)';
+          if (prevEl)  { prevEl.src = ''; prevEl.style.display = 'none'; }
+          return;
+        }
+
+        const kb = (file.size / 1024).toFixed(0);
+        if (labelEl) {
+          labelEl.innerHTML =
+            `<i class="fas fa-check-circle" style="color:var(--mint);"></i> ` +
+            `${esc(file.name)} (${kb} KB) — click to change`;
+        }
+        if (prevEl) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            prevEl.src = e.target.result;
+            prevEl.style.display = 'block';
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+    }
   }
 }
 
@@ -3720,7 +3825,7 @@ class GlycrApp {
 //  VALIDATION & STAFF EXTENSION
 // ─────────────────────────────────────────────────────────────
 
-class GlycrAccessControl {
+class MujticAccessControl {
   constructor(app) { this._app = app; }
   ownsEvent(eventId) {
     if (!this._app.currentUser?.isOrganizer) return false;
@@ -3740,7 +3845,7 @@ class GlycrAccessControl {
   requireOrganizer()          { if (!this._app.currentUser?.isOrganizer) this.deny('This feature is only available to event organizers.'); }
 }
 
-Object.assign(GlycrApp.prototype, {
+Object.assign(MujticApp.prototype, {
 
 
   showAccessDenied(msg) {
@@ -4337,14 +4442,14 @@ Object.assign(GlycrApp.prototype, {
 });
 
 
-Object.defineProperties(GlycrApp.prototype, {
+Object.defineProperties(MujticApp.prototype, {
   acl: {
-    get() { if (!this._acl) this._acl = new GlycrAccessControl(this); return this._acl; },
+    get() { if (!this._acl) this._acl = new MujticAccessControl(this); return this._acl; },
     configurable: true,
   },
   staffMembers: {
-    get() { return this.loadFromStorage('glycr_staff') || []; },
-    set(v) { this.saveToStorage('glycr_staff', v); },
+    get() { return this.loadFromStorage('mujtic_staff') || []; },
+    set(v) { this.saveToStorage('mujtic_staff', v); },
     configurable: true,
   },
 });
@@ -4352,10 +4457,10 @@ Object.defineProperties(GlycrApp.prototype, {
 // ─────────────────────────────────────────────────────────────
 //  THEME (light default, dark toggle)
 // ─────────────────────────────────────────────────────────────
-Object.assign(GlycrApp.prototype, {
+Object.assign(MujticApp.prototype, {
   _getTheme() {
     try {
-      const saved = localStorage.getItem('glycr_theme');
+      const saved = localStorage.getItem('mujtic_theme');
       if (saved === 'dark' || saved === 'light') return saved;
     } catch {}
     return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
@@ -4366,7 +4471,7 @@ Object.assign(GlycrApp.prototype, {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const onChange = e => {
       let saved = null;
-      try { saved = localStorage.getItem('glycr_theme'); } catch {}
+      try { saved = localStorage.getItem('mujtic_theme'); } catch {}
       if (saved === 'dark' || saved === 'light') return;
       this.applyTheme(e.matches ? 'dark' : 'light');
     };
@@ -4376,7 +4481,7 @@ Object.assign(GlycrApp.prototype, {
 
   applyTheme(theme, persist = false) {
     document.documentElement.setAttribute('data-theme', theme);
-    if (persist) { try { localStorage.setItem('glycr_theme', theme); } catch {} }
+    if (persist) { try { localStorage.setItem('mujtic_theme', theme); } catch {} }
 
     const btn = document.getElementById('theme-toggle');
     if (btn) {
@@ -4423,13 +4528,13 @@ Object.assign(GlycrApp.prototype, {
 });
 
 // Make charts pick up the theme as soon as they are (re)built
-const _origDashChart = GlycrApp.prototype._renderDashChart;
-GlycrApp.prototype._renderDashChart = async function () {
+const _origDashChart = MujticApp.prototype._renderDashChart;
+MujticApp.prototype._renderDashChart = async function () {
   await _origDashChart.call(this);
   this._restyleCharts();
 };
-const _origReportPage = GlycrApp.prototype.loadReportPage;
-GlycrApp.prototype.loadReportPage = async function () {
+const _origReportPage = MujticApp.prototype.loadReportPage;
+MujticApp.prototype.loadReportPage = async function () {
   await _origReportPage.call(this);
   this._restyleCharts();
 };
@@ -4437,8 +4542,8 @@ GlycrApp.prototype.loadReportPage = async function () {
 // ─────────────────────────────────────────────────────────────
 //  Patch init(): theme, validation features, and #event-<id> deep links
 // ─────────────────────────────────────────────────────────────
-const _origInit = GlycrApp.prototype.init;
-GlycrApp.prototype.init = async function () {
+const _origInit = MujticApp.prototype.init;
+MujticApp.prototype.init = async function () {
   const initialHash = location.hash;   // capture BEFORE init: checkAuth() calls showSection() and would discard it
   this.applyTheme(this._getTheme());
   this._watchSystemTheme();
@@ -4453,11 +4558,11 @@ GlycrApp.prototype.init = async function () {
 };
 
 // Patch showSection: validation page, stale org data refresh, and clearing the event hash
-const _origShowSection = GlycrApp.prototype.showSection;
-GlycrApp.prototype.showSection = function (section) {
+const _origShowSection = MujticApp.prototype.showSection;
+MujticApp.prototype.showSection = function (section) {
   if (section !== 'event-page') {
     if (/^#event-/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
-    document.title = 'Glycr — Event Ticketing';
+    document.title = 'Mujtic — Event Ticketing';
   }
   _origShowSection.call(this, section);
   if (section === 'validation-page') this.initValidationPage();
@@ -4469,4 +4574,4 @@ window.initGlycrMaps = function () {
   if (window.app && typeof window.app.initMapsCallback === 'function') window.app.initMapsCallback();
 };
 
-const app = new GlycrApp();
+const app = new MujticApp();
