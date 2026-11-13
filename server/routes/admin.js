@@ -17,17 +17,17 @@ const { validate, convertWaitlistSchema } = require('../middleware/validation');
 router.use('/admin', auth);
 
 // ── Dashboard ──
-router.get('/admin/stats', requireModeratorOrAdmin, adminController.getStats);
+router.get('/admin/stats', auth, requireModeratorOrAdmin, adminController.getStats);
 
 // ── Users ──
 // Moderators can list and suspend (service blocks them from suspending admins/mods).
 // Everything else (create, edit, role, delete) is admin-only.
-router.get('/admin/users', requireModeratorOrAdmin, adminController.getAllUsers);
-router.patch('/admin/users/:id/suspend', requireModeratorOrAdmin, adminController.suspendUser);
-router.post('/admin/users', requireAdmin, adminController.createUser);
-router.put('/admin/users/:id', requireAdmin, adminController.updateUser);
-router.patch('/admin/users/:id/role', requireAdmin, adminController.changeUserRole);
-router.delete('/admin/users/:id', requireAdmin, adminController.deleteUser);
+router.get('/admin/users', auth, requireModeratorOrAdmin, adminController.getAllUsers);
+router.patch('/admin/users/:id/suspend', auth, requireModeratorOrAdmin, adminController.suspendUser);
+router.post('/admin/users', auth, requireAdmin, adminController.createUser);
+router.put('/admin/users/:id', auth, requireAdmin, adminController.updateUser);
+router.patch('/admin/users/:id/role', auth, requireAdmin, adminController.changeUserRole);
+router.delete('/admin/users/:id', auth, requireAdmin, adminController.deleteUser);
 
 // ── Waitlist ──
 // Moderators can view and notify (SMS budget is real but bounded by NOTIFY_COOLDOWN).
@@ -37,69 +37,69 @@ router.delete('/admin/users/:id', requireAdmin, adminController.deleteUser);
 // and paymentGateway; the service applies the current fee rates and freezes
 // them onto the ticket, same as a normal checkout.
 // Deleting removes someone from the queue — admin-only (destructive).
-router.get('/admin/waitlists', requireModeratorOrAdmin, adminController.getAllWaitlists);
-router.post('/admin/waitlist/:id/notify', requireModeratorOrAdmin, adminController.notifyWaitlistEntry);
+router.get('/admin/waitlists',auth, requireModeratorOrAdmin, adminController.getAllWaitlists);
+router.post('/admin/waitlist/:id/notify', auth, requireModeratorOrAdmin, adminController.notifyWaitlistEntry);
 router.post(
-  '/admin/waitlist/:id/convert',
+  '/admin/waitlist/:id/convert', auth,
   requireAdmin,
   validate(convertWaitlistSchema),
   adminController.convertWaitlistToTicket
 );
-router.delete('/admin/waitlist/:id', requireAdmin, adminController.deleteWaitlistEntry);
+router.delete('/admin/waitlist/:id', auth, requireAdmin, adminController.deleteWaitlistEntry);
 
 // ── Events ──
 // All event moderation is moderator territory. Delete cascades to tickets /
 // favorites / waitlists / refunds — admin-only. Publish/unpublish lets a
 // moderator hide a suspicious event without destroying data.
-router.get('/admin/events', requireModeratorOrAdmin, adminController.getAllEvents);
-router.patch('/admin/events/:id/flag', requireModeratorOrAdmin, adminController.flagEvent);
-router.patch('/admin/events/:id/unflag', requireModeratorOrAdmin, adminController.unflagEvent);
-router.patch('/admin/events/:id/publish', requireModeratorOrAdmin, adminController.togglePublish);
-router.delete('/admin/events/:id', requireAdmin, adminController.deleteEvent);
-router.patch('/admin/events/:id/cancel',  requireModeratorOrAdmin, adminController.cancelEvent);
-router.patch('/admin/events/:id/restore', requireModeratorOrAdmin, adminController.restoreEvent);
+router.get('/admin/events', auth, requireModeratorOrAdmin, adminController.getAllEvents);
+router.patch('/admin/events/:id/flag', auth, requireModeratorOrAdmin, adminController.flagEvent);
+router.patch('/admin/events/:id/unflag', auth, requireModeratorOrAdmin, adminController.unflagEvent);
+router.patch('/admin/events/:id/publish', auth, requireModeratorOrAdmin, adminController.togglePublish);
+router.delete('/admin/events/:id', auth, requireAdmin, adminController.deleteEvent);
+router.patch('/admin/events/:id/cancel', auth, requireModeratorOrAdmin, adminController.cancelEvent);
+router.patch('/admin/events/:id/restore', auth, requireModeratorOrAdmin, adminController.restoreEvent);
 
 // ── Tickets ──
 // Listing is moderator-visible. Validate/cancel affect ticket state and
 // trigger refunds — admin-only (the ticket service also has an isAdmin guard).
-router.get('/admin/tickets', requireModeratorOrAdmin, adminController.getAllTickets);
-router.patch('/admin/tickets/:id/validate', requireAdmin, ticketController.validateTicket);
-router.patch('/admin/tickets/:id/cancel', requireAdmin, ticketController.cancelTicket);
+router.get('/admin/tickets', auth, requireModeratorOrAdmin, adminController.getAllTickets);
+router.patch('/admin/tickets/:id/validate', auth, requireAdmin, ticketController.validateTicket);
+router.patch('/admin/tickets/:id/cancel', auth, requireAdmin, ticketController.cancelTicket);
 
 // ── Coupons ──
-router.get('/admin/coupons', requireAdmin, adminController.getAllCoupons);
+router.get('/admin/coupons', auth, requireAdmin, adminController.getAllCoupons);
 
 // ── Service requests ──
 // Customer support triage is a moderator's day job — restore full access.
-router.get('/admin/service-requests', requireModeratorOrAdmin, serviceRequestController.getAllRequests);
-router.patch('/admin/service-requests/:id/status', requireModeratorOrAdmin, serviceRequestController.updateStatus);
-router.patch('/admin/service-requests/:id/resolve', requireModeratorOrAdmin, serviceRequestController.resolveRequest);
-router.patch('/admin/service-requests/:id/in-progress', requireModeratorOrAdmin, serviceRequestController.markInProgress);
+router.get('/admin/service-requests',  auth, requireModeratorOrAdmin, serviceRequestController.getAllRequests);
+router.patch('/admin/service-requests/:id/status', auth, requireModeratorOrAdmin, serviceRequestController.updateStatus);
+router.patch('/admin/service-requests/:id/resolve', auth, requireModeratorOrAdmin, serviceRequestController.resolveRequest);
+router.patch('/admin/service-requests/:id/in-progress',auth,  requireModeratorOrAdmin, serviceRequestController.markInProgress);
 
 // ── Payouts ──
 // Money. Moderator can see the queue (for investigation), admin approves.
-router.get('/admin/payouts', requireModeratorOrAdmin, adminController.getAllPayouts);
-router.patch('/admin/payouts/:id/approve', requireAdmin, adminController.approvePayout);
-router.patch('/admin/payouts/:id/reject', requireAdmin, adminController.rejectPayout);
+router.get('/admin/payouts', auth, requireModeratorOrAdmin, adminController.getAllPayouts);
+router.patch('/admin/payouts/:id/approve', auth, requireAdmin, adminController.approvePayout);
+router.patch('/admin/payouts/:id/reject', auth,  requireAdmin, adminController.rejectPayout);
 router.patch('/admin/payouts/:id/complete', auth, requireAdmin, adminController.completePayout);
 
 // ── Logs ──
 // Moderator reads logs (for investigation), admin can clear them.
-router.get('/admin/logs', requireModeratorOrAdmin, logController.getLogs);
-router.delete('/admin/logs', requireAdmin, logController.clearLogs);
+router.get('/admin/logs', auth, requireModeratorOrAdmin, logController.getLogs);
+router.delete('/admin/logs', auth, requireAdmin, logController.clearLogs);
 
 // ── Settings ──
 // Admin-only write. Moderators can still read so they see current fee rates
 // when investigating disputes, but only an admin can change them.
 // The settings service whitelist now covers: platformFee, platformFeeFloor,
 // processingFee, processingFeeFloor, refundDeadlineDays.
-router.get('/admin/settings', requireModeratorOrAdmin, settingsController.getSettings);
-router.put('/admin/settings', requireAdmin, settingsController.updateSettings);
+router.get('/admin/settings', auth, requireModeratorOrAdmin, settingsController.getSettings);
+router.put('/admin/settings', auth, requireAdmin, settingsController.updateSettings);
 
 // ── Refunds ──
 // Listing everything is admin-only. Completing an approved refund marks the
 // money as actually paid out — admin-only.
-router.get('/admin/refunds/all', requireAdmin, refundController.getAllRefunds);
+router.get('/admin/refunds/all', auth, requireAdmin, refundController.getAllRefunds);
 router.patch('/admin/refunds/:id/complete', auth, requireAdmin, refundController.completeRefund);
 
 // ── Featured ──

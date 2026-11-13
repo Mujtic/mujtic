@@ -21,7 +21,7 @@ router.put('/auth/profile', auth, authController.updateProfile);
 router.post('/auth/forgot-password', resetLimiter, authController.forgotPassword);
 
 // ── Reset password ──
-router.post('/auth/reset-password', authController.resetPassword);
+router.post('/auth/reset-password', resetLimiter, authController.resetPassword);
 
 // ── Change password ──
 router.post('/auth/change-password', auth, authLimiter, authController.changePassword);
