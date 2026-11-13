@@ -1,0 +1,19 @@
+# netlify.toml
+# The site's files live in frontend/, not the repo root.
+[build]
+publish = "frontend"
+# No build step — frontend/ contains the files directly.
+# Empty command stops Netlify from guessing/running a build.
+command = ""
+
+# (Optional but recommended) cache static assets
+[[headers]]
+for = "/*"
+[headers.values]
+X-Frame-Options = "SAMEORIGIN"
+X-Content-Type-Options = "nosniff"
+
+[[headers]]
+for = "/assets/*"
+[headers.values]
+Cache-Control = "public, max-age=31536000, immutable"
