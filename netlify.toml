@@ -1,0 +1,4 @@
+# The site's HTML, CSS and JS live in /frontend (the repo root has no index.html,
+# which is why the live site showed "Page Not Found").
+[build]
+  publish = "frontend"
