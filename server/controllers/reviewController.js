@@ -16,3 +16,15 @@ exports.getMyReviews = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.getOrganizerReviews = async (req, res, next) => {
+  try {
+    if (!req.user?.isOrganizer && !req.user?.isAdmin) {
+      throw new (require('../utils/appError').AppError)('Forbidden', 403);
+    }
+    const data = await reviewService.getOrganizerReviews(req.user.id);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+};

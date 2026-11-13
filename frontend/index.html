@@ -1086,6 +1086,35 @@
   </div>
 </div>
 
+<!-- Event Reviews (organizer view) -->
+<div id="event-reviews-modal" class="modal" role="dialog" aria-modal="true">
+  <div class="modal-backdrop"></div>
+  <div class="modal-box wide">
+    <div class="modal-header">
+      <h3 class="modal-title with-count">
+        <span><i class="fas fa-star" style="color:var(--gold);"></i> Event Reviews</span>
+        <span class="count-chip" id="event-reviews-count"></span>
+      </h3>
+      <button class="modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div id="event-reviews-summary" style="
+      display:none; align-items:center; gap:1rem; margin-bottom:1.25rem;
+      padding:1rem 1.25rem; background:var(--bg-3); border:1px solid var(--border);
+      border-radius:var(--radius-lg);">
+      <div style="text-align:center;flex-shrink:0;">
+        <div style="font-family:'Syne',sans-serif;font-size:2.2rem;font-weight:800;color:var(--gold);line-height:1;" id="event-reviews-average">—</div>
+        <div style="font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-top:0.25rem;">Average</div>
+      </div>
+      <div style="flex:1;min-width:0;" id="event-reviews-stars"></div>
+      <div style="flex-shrink:0;text-align:right;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:1.1rem;font-weight:600;color:var(--bright);" id="event-reviews-total">0</div>
+        <div style="font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;">Total</div>
+      </div>
+    </div>
+    <div id="event-reviews-list" style="max-height:55vh;overflow-y:auto;"></div>
+  </div>
+</div>
+
 <!-- Waitlist -->
 <div id="waitlist-modal" class="modal" role="dialog" aria-modal="true">
   <div class="modal-backdrop"></div>

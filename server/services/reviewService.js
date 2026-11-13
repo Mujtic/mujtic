@@ -63,6 +63,84 @@ class ReviewService {
       createdAt: r.createdAt,
     }));
   }
+
+  // ── Organizer view ──
+  // Returns everything the organizer needs in one call:
+  //   summaries: { [eventId]: { average, count } }   for the badges
+  //   reviews:   [ { _id, eventId, rating, text, createdAt, userName } ]  for the modal
+  // Scoped to events the organizer owns. Verified up front — a forged
+  // organizerId can't leak reviews from other organizers' events.
+  async getOrganizerReviews(organizerId) {
+    if (!organizerId) throw new AppError('Authentication required', 401);
+
+    const ownedEvents = await Event.find({ organizerId })
+      .select('_id title')
+      .lean();
+    if (ownedEvents.length === 0) {
+      return { summaries: {}, reviews: [] };
+    }
+
+    const eventIds = ownedEvents.map(e => e._id);
+    const reviews = await Review.find({ eventId: { $in: eventIds } })
+      .populate('userId', 'name')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Aggregate: average + count per event
+    const summaries = {};
+    for (const ev of ownedEvents) {
+      summaries[String(ev._id)] = { average: 0, count: 0, _sum: 0 };
+    }
+    for (const r of reviews) {
+      const key = String(r.eventId);
+      if (!summaries[key]) continue;
+      summaries[key]._sum += r.rating;
+      summaries[key].count++;
+    }
+    for (const key of Object.keys(summaries)) {
+      const s = summaries[key];
+      s.average = s.count > 0 ? Math.round((s._sum / s.count) * 10) / 10 : 0;
+      delete s._sum;
+    }
+
+    // Shape the review rows the frontend expects
+    const shaped = reviews.map(r => ({
+      _id: r._id,
+      eventId: String(r.eventId),
+      rating: r.rating,
+      text: r.text,
+      createdAt: r.createdAt,
+      userName: r.userId?.name || 'Ticket holder',
+    }));
+
+    return { summaries, reviews: shaped };
+  }
+
+  // ── Single-event reviews (organizer) ──
+  // Optional standalone method if you ever want a per-event endpoint.
+  // Kept alongside getOrganizerReviews so the aggregation logic stays
+  // in one place; the frontend uses the combined endpoint for now.
+  async getEventReviews(eventId, organizerId) {
+    if (!isObjectIdString(eventId)) throw new AppError('Invalid event', 400);
+    if (!organizerId) throw new AppError('Authentication required', 401);
+
+    const owns = await Event.exists({ _id: eventId, organizerId });
+    if (!owns) throw new AppError('Event not found or not yours', 403);
+
+    const reviews = await Review.find({ eventId })
+      .populate('userId', 'name')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return reviews.map(r => ({
+      _id: r._id,
+      eventId: String(r.eventId),
+      rating: r.rating,
+      text: r.text,
+      createdAt: r.createdAt,
+      userName: r.userId?.name || 'Ticket holder',
+    }));
+  }
 }
 
 module.exports = new ReviewService();

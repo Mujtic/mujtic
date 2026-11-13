@@ -59,6 +59,7 @@ class GlycrApp {
     this._loadAllPromise = null;
     this._orgLoadedAt = 0;
 
+
     this.currentUser = null;
 
     // CENTRAL DATA STORES (Admin Panel Pattern)
@@ -68,6 +69,8 @@ class GlycrApp {
     this.allPayouts = [];       // All payouts (if organizer)
     this.orgRefunds = [];       // Refunds for organizer's events
     this.allTransactions = [];  // All transactions
+    this.orgReviewSummaries = {};   // { [eventId]: { average, count } }
+    this.orgReviews = [];           // [ { _id, eventId, rating, text, createdAt, userName } ]
 
     // UI State
     this.events = [];           // Paginated events for home page
@@ -396,7 +399,7 @@ class GlycrApp {
     this._loadAllPromise = (async () => {
       const jobs = [this.loadEvents()];
       if (this.currentUser) jobs.push(this.loadUserTickets(), this.loadUserPrefs());
-      if (this.currentUser?.isOrganizer) jobs.push(this.loadOrgEvents(), this.loadPayouts(), this.loadOrgRefunds(), this.loadOrgSummary());
+      if (this.currentUser?.isOrganizer) jobs.push(this.loadOrgEvents(), this.loadPayouts(), this.loadOrgRefunds(), this.loadOrgSummary(), this.loadOrgReviews(),  );
       const res = await Promise.allSettled(jobs);
       res.filter(r => r.status === 'rejected').forEach(r => console.error(r.reason));
       if (res.some(r => r.status === 'rejected')) this.showToast('Some data failed to load. Try refreshing.', 'warning');
@@ -455,6 +458,75 @@ class GlycrApp {
       if (el && el.style.display === 'block') return s;
     }
     return 'home';
+  }
+
+  async loadOrgReviews() {
+    try {
+      const data = await this.fetchApi('/reviews/organizer');
+      this.orgReviewSummaries = data.summaries || {};
+      this.orgReviews = data.reviews || [];
+    } catch (err) {
+      // Non-fatal — badges just don't show
+      console.error('Organizer reviews load failed:', err);
+      this.orgReviewSummaries = {};
+      this.orgReviews = [];
+    }
+  }
+
+  openEventReviewsModal(eventId, eventTitle) {
+    const reviews = this.orgReviews.filter(r => String(r.eventId) === String(eventId));
+    const summary = this.orgReviewSummaries[String(eventId)] || { average: 0, count: 0 };
+
+    const list = document.getElementById('event-reviews-list');
+    const summaryWrap = document.getElementById('event-reviews-summary');
+    const countChip = document.getElementById('event-reviews-count');
+
+    if (countChip) countChip.textContent = `${summary.count}`;
+
+    if (reviews.length === 0) {
+      summaryWrap.style.display = 'none';
+      list.innerHTML = `<div class="empty-state"><h3>No reviews yet</h3>
+        <p>Attendees can review this event after it takes place.</p></div>`;
+    } else {
+      summaryWrap.style.display = 'flex';
+      document.getElementById('event-reviews-average').textContent = summary.average.toFixed(1);
+      document.getElementById('event-reviews-total').textContent = summary.count;
+
+      const full = Math.floor(summary.average);
+      const half = (summary.average - full) >= 0.5;
+      const stars = Array.from({ length: 5 }, (_, i) => {
+        const filled = i < full;
+        const isHalf = !filled && i === full && half;
+        return `<i class="fas ${filled ? 'fa-star' : (isHalf ? 'fa-star-half-alt' : 'fa-star')}" style="color:${filled || isHalf ? 'var(--gold)' : 'var(--border-2)'};font-size:1.1rem;margin-right:0.15rem;"></i>`;
+      }).join('');
+      document.getElementById('event-reviews-stars').innerHTML = stars;
+
+      list.innerHTML = reviews.map(r => {
+        const stars = Array.from({ length: 5 }, (_, i) =>
+          `<i class="fas fa-star" style="color:${i < r.rating ? 'var(--gold)' : 'var(--border-2)'};font-size:0.75rem;"></i>`
+        ).join('');
+        const when = new Date(r.createdAt).toLocaleDateString('en-GB', {
+          day: 'numeric', month: 'short', year: 'numeric',
+        });
+        return `<div class="review-card" style="margin-bottom:0.6rem;">
+          <div class="review-card-header">
+            <div>
+              <div class="review-card-event">${esc(r.userName)}</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--muted);margin-top:0.15rem;">${when}</div>
+            </div>
+            <div class="review-card-stars">${stars}</div>
+          </div>
+          <div class="review-card-text">${esc(r.text)}</div>
+        </div>`;
+      }).join('');
+    }
+
+    // Reuse the existing modal event-title binding spot
+    const titleEl = document.querySelector('#event-reviews-modal .modal-title span:first-child');
+    if (titleEl) {
+      titleEl.innerHTML = `<i class="fas fa-star" style="color:var(--gold);"></i> ${esc(eventTitle)}`;
+    }
+    this.openModal('event-reviews-modal');
   }
 
   // ─── Init ─────────────────────────────────────────────────
@@ -1123,6 +1195,11 @@ class GlycrApp {
         <div class="event-admin-meta">
           <i class="fas fa-calendar-alt"></i> ${new Date(event.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'})}
           &nbsp;·&nbsp; <i class="fas fa-coins"></i> ${eRevText}
+          ${(() => {
+      const s = this.orgReviewSummaries[event._id];
+      if (!s || s.count === 0) return '';
+      return ` &nbsp;·&nbsp; <a href="#" onclick="event.preventDefault(); app.openEventReviewsModal('${esc(event._id)}', '${esc(event.title)}')" style="color:var(--gold); text-decoration:none; font-weight:600;" title="View reviews"><i class="fas fa-star"></i> ${s.average.toFixed(1)} <span style="color:var(--muted); font-weight:400; font-size:0.72rem;">(${s.count})</span></a>`;
+    })()}
           &nbsp;${statusBadge}
         </div>
       </div>
@@ -2156,39 +2233,46 @@ class GlycrApp {
       valid = false;
     }
     if (!valid) return;
+
     const s = document.getElementById('review-status');
     s.style.display = 'block';
     s.className = 'status-msg loading';
     s.textContent = 'Submitting review…';
+
     try {
-      const saved = await this.fetchApi('/reviews', {
+      await this.fetchApi('/reviews', {
         method: 'POST',
-        body: JSON.stringify({eventId, rating: this.currentRating, text})
+        body: JSON.stringify({ eventId, rating: this.currentRating, text }),
       });
-      const ev = this.allEvents.find(e => e._id === eventId);
-      this.reviews.push({
-        id: saved?._id || saved?.id || 'REV-' + Date.now(),
-        userId: this.currentUser?.id,
-        eventId,
-        eventTitle: ev ? ev.title : 'Event',
-        rating: this.currentRating,
-        text,
-        createdAt: new Date().toISOString()
-      });
-      this.saveToStorage('glycr_reviews', this.reviews);
+
+      // Server is the source of truth — refetch both affected lists.
+      //   loadUserPrefs   → GET /reviews/my   → refresh this.reviews (also saves to localStorage)
+      //   loadUserTickets → GET /tickets/my   → refresh t.reviewed = true
+      await Promise.allSettled([
+        this.loadUserPrefs(),
+        this.loadUserTickets(),
+      ]);
+
+      // Re-render the two panels the submission affects.
+      //   _loadReviewsTab      → new review appears in "My Reviews"
+      //   _loadPurchaseHistory → Review button disappears from the row
+      this._loadReviewsTab();
+      this._loadPurchaseHistory();
+
       s.className = 'status-msg success';
       s.innerHTML = '<strong>✓ Review submitted!</strong> Thank you for your feedback.';
-      this.pushNotification({type: 'purchase', text: `Your review for ${ev ? ev.title : 'the event'} was submitted!`});
-      await this._reload(this.loadUserTickets);
-      setTimeout(() => {
-        this.closeAllModals();
-        this.loadProfile();
-      }, 2000);
+
+      const ev = this.allEvents.find(e => e._id === eventId);
+      this.pushNotification({
+        type: 'purchase',
+        text: `Your review for ${ev ? ev.title : 'the event'} was submitted!`,
+      });
+
+      setTimeout(() => this.closeAllModals(), 2000);
     } catch (err) {
       s.className = 'status-msg error';
       s.textContent = err.message || 'Could not submit your review.';
     }
-
   }
 
   _getQRMatrix(text) {
