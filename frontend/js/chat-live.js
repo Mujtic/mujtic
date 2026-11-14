@@ -31,9 +31,18 @@
   function markSeen() {
     try { sessionStorage.setItem(SEEN, '1'); } catch {}
   }
-  // True when the backend says the conversation no longer exists.
   function isNotFound(msg) {
     return /not\s*found/i.test(String(msg || ''));
+  }
+
+  // Prefer the live app instance; fall back to the persisted user so we can
+  // identify a signed-in visitor even before checkAuth() has finished.
+  function currentUser() {
+    if (window.app?.currentUser) return window.app.currentUser;
+    try {
+      const raw = localStorage.getItem('user');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
   }
 
   const CSS = `
@@ -46,61 +55,45 @@
       background:var(--coral,#e5484d);color:#fff;font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center}
     .lcw-btn.has-badge .lcw-badge{display:flex}
 
-    /* Attention: bounce on load */
     .lcw-btn.pulse { animation: lcwBounce 1.4s ease-in-out infinite; }
-    @keyframes lcwBounce {
-      0%, 100% { transform: scale(1); }
-      50%      { transform: scale(1.1); }
-    }
-    /* Attention: expanding ring */
+    @keyframes lcwBounce { 0%,100%{transform:scale(1)} 50%{transform:scale(1.1)} }
     .lcw-btn::after {
-      content: ''; position: absolute; inset: -4px; border-radius: 50%;
-      border: 2px solid var(--teal, #0d9488);
-      pointer-events: none; opacity: 0; transform: scale(.85);
+      content:''; position:absolute; inset:-4px; border-radius:50%;
+      border:2px solid var(--teal,#0d9488);
+      pointer-events:none; opacity:0; transform:scale(.85);
     }
     .lcw-btn.ripple::after { animation: lcwRing 2s ease-out infinite; }
-    @keyframes lcwRing {
-      0%   { transform: scale(.85); opacity: .65; }
-      85%  { transform: scale(1.9); opacity: 0; }
-      100% { transform: scale(1.9); opacity: 0; }
-    }
-    /* Attention: wiggle on new message */
+    @keyframes lcwRing { 0%{transform:scale(.85);opacity:.65} 85%{transform:scale(1.9);opacity:0} 100%{transform:scale(1.9);opacity:0} }
     .lcw-btn.wiggle { animation: lcwWiggle .7s ease-in-out; }
-    @keyframes lcwWiggle {
-      0%, 100%   { transform: rotate(0); }
-      20%, 60%   { transform: rotate(-10deg); }
-      40%, 80%   { transform: rotate(10deg); }
-    }
+    @keyframes lcwWiggle { 0%,100%{transform:rotate(0)} 20%,60%{transform:rotate(-10deg)} 40%,80%{transform:rotate(10deg)} }
 
-    /* "Need help?" tooltip pill */
     .lcw-tip {
-      position: fixed; bottom: 32px; right: 88px; z-index: 9997;
-      background: var(--bg-2, #fff); color: var(--text, #0b1624);
-      border: 1px solid var(--border, #dbe3ec); border-radius: 100px;
-      padding: .5rem .85rem; font-family: 'Outfit', system-ui, sans-serif;
-      font-size: .82rem; font-weight: 500;
-      box-shadow: 0 6px 20px rgba(0,0,0,.14);
-      display: flex; align-items: center; gap: .45rem;
-      white-space: nowrap;
-      opacity: 0; transform: translateX(8px); pointer-events: none;
-      transition: opacity .3s ease, transform .3s ease;
-      cursor: pointer;
+      position:fixed; bottom:32px; right:88px; z-index:9997;
+      background:var(--bg-2,#fff); color:var(--text,#0b1624);
+      border:1px solid var(--border,#dbe3ec); border-radius:100px;
+      padding:.5rem .85rem; font-family:'Outfit',system-ui,sans-serif;
+      font-size:.82rem; font-weight:500;
+      box-shadow:0 6px 20px rgba(0,0,0,.14);
+      display:flex; align-items:center; gap:.45rem;
+      white-space:nowrap;
+      opacity:0; transform:translateX(8px); pointer-events:none;
+      transition:opacity .3s ease, transform .3s ease;
+      cursor:pointer;
     }
-    .lcw-tip.show { opacity: 1; transform: none; pointer-events: auto; }
+    .lcw-tip.show { opacity:1; transform:none; pointer-events:auto; }
     .lcw-tip::after {
-      content: ''; position: absolute; right: -5px; top: 50%;
-      transform: translateY(-50%) rotate(45deg);
-      width: 10px; height: 10px; background: var(--bg-2, #fff);
-      border-right: 1px solid var(--border, #dbe3ec);
-      border-top: 1px solid var(--border, #dbe3ec);
+      content:''; position:absolute; right:-5px; top:50%;
+      transform:translateY(-50%) rotate(45deg);
+      width:10px; height:10px; background:var(--bg-2,#fff);
+      border-right:1px solid var(--border,#dbe3ec);
+      border-top:1px solid var(--border,#dbe3ec);
     }
     .lcw-tip .lcw-tip-close {
-      margin-left: .15rem; border: none; background: transparent;
-      color: var(--muted, #6b7f93); font-size: 1rem;
-      padding: 0 .15rem; line-height: 1; cursor: pointer;
+      margin-left:.15rem; border:none; background:transparent;
+      color:var(--muted,#6b7f93); font-size:1rem;
+      padding:0 .15rem; line-height:1; cursor:pointer;
     }
 
-    /* Panel */
     .lcw-panel{position:fixed;bottom:88px;right:22px;z-index:9999;width:min(380px,calc(100vw - 32px));
       max-height:min(560px,calc(100vh - 110px));background:var(--bg-2,#fff);color:var(--text,#0b1624);
       border:1px solid var(--border,#dbe3ec);border-radius:14px;box-shadow:0 18px 48px rgba(0,0,0,.22);
@@ -132,11 +125,10 @@
       .lcw-btn{right:16px;bottom:16px}
       .lcw-tip{right:82px;bottom:26px;font-size:.78rem}
     }
-
     @media (prefers-reduced-motion: reduce) {
-      .lcw-btn.pulse, .lcw-btn.wiggle { animation: none !important; }
-      .lcw-btn.ripple::after { display: none; }
-      .lcw-tip { transition: opacity .15s ease; }
+      .lcw-btn.pulse, .lcw-btn.wiggle { animation:none !important; }
+      .lcw-btn.ripple::after { display:none; }
+      .lcw-tip { transition:opacity .15s ease; }
     }
   `;
 
@@ -158,7 +150,6 @@
     btn.innerHTML = '<i class="fas fa-comment-dots"></i><span class="lcw-badge" id="lcw-badge">0</span>';
     document.body.appendChild(btn);
 
-    // "Need help?" tooltip
     const tip = document.createElement('div');
     tip.className = 'lcw-tip'; tip.id = 'lcw-tip';
     tip.setAttribute('role', 'button');
@@ -194,7 +185,6 @@
     let busy = false;
     let closedShown = false;
 
-    // ── Attention sequence ──────────────────────────────────
     let attentionTimers = [];
 
     function stopAttention() {
@@ -206,16 +196,13 @@
 
     function startAttention() {
       if (seenThisSession()) return;
-
       attentionTimers.push(setTimeout(() => {
         btn.classList.add('pulse', 'ripple');
         tip.classList.add('show');
       }, 3500));
-
       attentionTimers.push(setTimeout(() => {
         btn.classList.remove('pulse', 'ripple');
       }, 10000));
-
       attentionTimers.push(setTimeout(() => {
         tip.classList.remove('show');
       }, 12000));
@@ -235,8 +222,6 @@
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
     });
 
-    // ── Chat logic ─────────────────────────────────────────
-
     function bubble(role, text, meta) {
       const el = document.createElement('div');
       el.className = `lcw-msg ${role}`;
@@ -248,7 +233,7 @@
 
     async function startConv() {
       try {
-        const u = window.app?.currentUser;
+        const u = currentUser();
         const r = await fetch(`${API}/chat/start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -264,8 +249,22 @@
       }
     }
 
-    // Called when the server says the conversation no longer exists (admin
-    // deleted it). Reset local state so the next send opens a fresh thread.
+    // If a conversation already exists but we've since signed in, tell the
+    // server who we are so the admin stops seeing "Visitor" on this thread.
+    // `/chat/start` returns the existing open conversation and updates the
+    // visitor fields in place — no new thread is created.
+    async function resyncIdentity() {
+      const u = currentUser();
+      if (!u?.name && !u?.email) return;
+      try {
+        await fetch(`${API}/chat/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ visitorId: visitorId(), name: u?.name, email: u?.email }),
+        });
+      } catch {}
+    }
+
     function resetForRemovedConversation(showMessage) {
       convId = null;
       lastAt = null;
@@ -280,17 +279,14 @@
       try {
         const q = `visitorId=${encodeURIComponent(visitorId())}` + (since ? `&since=${encodeURIComponent(since)}` : '');
         const r = await fetch(`${API}/chat/${convId}?${q}`).then(r => r.json());
-
         if (!r.success) {
           if (isNotFound(r.message)) resetForRemovedConversation(true);
           return;
         }
-
         if (r.conversation?.status === 'closed' && !closedShown) {
           closedShown = true;
           system('This conversation has been closed. Send a new message to start a fresh one.');
         }
-
         (r.messages || []).forEach(m => {
           bubble(m.from, m.text, fmtTime(m.createdAt));
           lastAt = m.createdAt;
@@ -323,14 +319,9 @@
         }).then(r => r.json());
 
         if (!r.success) {
-          // Deleted mid-send: backend responds 404 "Conversation not found".
-          // Wipe the optimistic bubble, reset state, keep their text so they
-          // can just press enter again — the next attempt starts fresh.
           if (isNotFound(r.message)) {
             log.innerHTML = '';
-            convId = null;
-            lastAt = null;
-            closedShown = false;
+            convId = null; lastAt = null; closedShown = false;
             system('This conversation was removed. Press send to start a new one.');
             input.value = text;
             return;
@@ -370,13 +361,25 @@
       btn.setAttribute('aria-expanded', 'true');
       btn.classList.remove('has-badge');
       badgeEl.textContent = '0';
+
       if (!convId) {
         system('Connecting…');
         const ok = await startConv();
         log.innerHTML = '';
-        if (ok) system('Hi 👋 Send us a message — we reply within 2–4 hours.');
-        else system('Could not connect. Please try again later.');
+        if (ok) {
+          const u = currentUser();
+          const first = u?.name?.split(' ')[0];
+          system(first
+            ? `Hi ${first} 👋 Send us a message — we reply within 2–4 hours.`
+            : 'Hi 👋 Send us a message — we reply within 2–4 hours.');
+        } else {
+          system('Could not connect. Please try again later.');
+        }
+      } else {
+        // Existing thread — refresh our identity in case we logged in since.
+        await resyncIdentity();
       }
+
       await load(null);
       startPolling();
       setTimeout(() => input.focus(), 200);
@@ -395,27 +398,20 @@
       if (!document.hidden && panel.classList.contains('open') && convId) load(lastAt);
     });
 
-    // Unread badge + wiggle for owner replies while the panel is closed.
-    // Also detects a mid-session delete (404 from server) and quietly resets
-    // so the next open() creates a fresh thread.
+    // Badge + wiggle for owner replies while panel is closed. Also detects
+    // mid-session deletion (404) and quietly resets.
     setInterval(async () => {
       if (!convId || panel.classList.contains('open')) return;
       try {
         const r = await fetch(`${API}/chat/${convId}?visitorId=${encodeURIComponent(visitorId())}`).then(r => r.json());
-
         if (!r.success) {
           if (isNotFound(r.message)) {
-            // Silent reset — the panel is closed so no message to show.
-            // Next open() sees !convId and starts fresh with a greeting.
-            convId = null;
-            lastAt = null;
-            closedShown = false;
+            convId = null; lastAt = null; closedShown = false;
             btn.classList.remove('has-badge');
             badgeEl.textContent = '0';
           }
           return;
         }
-
         const ownerMsgs = (r.messages || []).filter(m => m.from === 'owner' && (!lastAt || m.createdAt > lastAt));
         if (ownerMsgs.length) {
           lastAt = ownerMsgs[ownerMsgs.length - 1].createdAt;

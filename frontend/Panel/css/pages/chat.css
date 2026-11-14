@@ -262,6 +262,102 @@
   border-color: var(--color-danger);
 }
 
+/* ── Bulk selection checkbox on each row ─────────── */
+.chat-conv-check {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding-right: 0.15rem;
+  cursor: pointer;
+}
+
+.chat-conv-check input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-brand);
+}
+
+.chat-conv-item.selected {
+  background: var(--color-brand-bg2);
+}
+
+.chat-conv-item.selected:hover {
+  background: var(--color-brand-bg3);
+}
+
+/* ── Select-all checkbox in sidebar header ──────── */
+.chat-select-all {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  margin-right: 0.4rem;
+}
+
+.chat-select-all input {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--color-brand);
+}
+
+.chat-select-all input:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* ── Bulk action bar ────────────────────────────── */
+.chat-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 1rem;
+  background: var(--color-brand-bg3);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm-minus);
+  color: var(--color-text-primary);
+}
+
+.chat-bulk-count {
+  font-weight: var(--fw-semibold);
+  color: var(--color-brand-light);
+}
+
+.chat-bulk-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.chat-bulk-delete {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  border: 1px solid var(--color-danger-border);
+  padding: 0.35rem 0.75rem;
+  font-size: var(--text-sm-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.chat-bulk-delete:hover {
+  background: var(--color-danger-bg3);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.chat-bulk-clear {
+  background: var(--color-bg-raised);
+  color: var(--color-text-muted);
+  padding: 0.35rem 0.65rem;
+  font-size: var(--text-sm-soft);
+}
+
+.chat-bulk-clear:hover {
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+}
+
 /* ── Responsive ───────────────────────────────── */
 @media (max-width: 900px) {
   .chat-layout        { grid-template-columns: 1fr; height: auto; }

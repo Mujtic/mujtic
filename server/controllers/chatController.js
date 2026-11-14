@@ -15,7 +15,7 @@ exports.start = async (req, res, next) => {
       visitorId,
       name,
       email,
-      userId: req.user?.id || null,   // optionalAuth populates this if signed in
+      userId: req.user?.id || null,
     });
     res.json({ success: true, conversation });
   } catch (err) { next(err); }
@@ -50,7 +50,11 @@ exports.visitorPoll = async (req, res, next) => {
 
 exports.listConversations = async (req, res, next) => {
   try {
-    const conversations = await chatService.listConversations({ status: req.query.status });
+    const conversations = await chatService.listConversations({
+      status: req.query.status,
+      from:   req.query.from || null,
+      to:     req.query.to   || null,
+    });
     res.json({ success: true, conversations });
   } catch (err) { next(err); }
 };
@@ -69,7 +73,7 @@ exports.ownerReply = async (req, res, next) => {
   try {
     const message = await chatService.ownerReplyToConversation({
       convId:    req.params.id,
-      ownerName: req.user.email,   // JWT payload has email, not name
+      ownerName: req.user.email,
       text:      req.body?.text,
     });
 
@@ -100,13 +104,8 @@ exports.close = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-exports.unreadCount = async (req, res, next) => {
-  try {
-    const count = await chatService.countUnreadForOwner();
-    res.json({ success: true, count });
-  } catch (err) { next(err); }
-};
-
+// Admin-only delete (route gated by requireAdmin). Deletes the conversation
+// AND all its messages in a single transaction-like sequence.
 exports.deleteConversation = async (req, res, next) => {
   try {
     const snapshot = await chatService.deleteConversationById({ convId: req.params.id });
@@ -122,5 +121,32 @@ exports.deleteConversation = async (req, res, next) => {
     });
 
     res.json({ success: true, conversation: snapshot });
+  } catch (err) { next(err); }
+};
+
+// Admin-only bulk delete (route gated by requireAdmin).
+exports.bulkDeleteConversations = async (req, res, next) => {
+  try {
+    const { ids } = req.body || {};
+    const result = await chatService.bulkDeleteConversations({ ids });
+
+    logService.audit(req.user.email, 'support_bulk_delete', `count:${result.deleted}`, {
+      type: 'danger',
+      adminId: req.user.id,
+      count: result.deleted,
+      messageTotal: result.messageTotal,
+      conversationIds: result.snapshots.map(s => String(s._id)),
+      visitorEmails: result.snapshots.map(s => s.visitorEmail).filter(Boolean),
+      ...ctx(req),
+    });
+
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+};
+
+exports.unreadCount = async (req, res, next) => {
+  try {
+    const count = await chatService.countUnreadForOwner();
+    res.json({ success: true, count });
   } catch (err) { next(err); }
 };

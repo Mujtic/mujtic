@@ -7,7 +7,7 @@ const { isObjectIdString } = require('../utils/validators');
 
 const MAX_TEXT_LEN = 2000;
 const SNIPPET_LEN  = 120;
-const LIST_LIMIT   = 100;
+const LIST_LIMIT   = 500;
 
 class ChatService {
 
@@ -23,8 +23,6 @@ class ChatService {
   }
 
   async _findConvOrThrow(convId, filter = {}) {
-    // Guard BEFORE the query so a non-ObjectId string yields a clean 404,
-    // not a Mongoose CastError surfaced as a 500 by errorHandler.
     if (!isObjectIdString(String(convId))) {
       throw new AppError('Conversation not found', 404);
     }
@@ -45,9 +43,6 @@ class ChatService {
     await conv.save();
   }
 
-  // Fire-and-forget email to the support team on the FIRST unread message
-  // in a conversation. Later messages ride on the in-app badge instead of
-  // spamming an inbox. Silent if SUPPORT_NOTIFY_EMAIL is unset.
   async _notifySupportOnce(conv, text) {
     if (conv.unreadForOwner !== 1) return;
     const to = process.env.SUPPORT_NOTIFY_EMAIL;
@@ -109,7 +104,6 @@ class ChatService {
     conv.unreadForOwner += 1;
     await this._touch(conv, body, 'visitor');
 
-    // Non-blocking; already catches internally.
     this._notifySupportOnce(conv, body);
 
     return msg;
@@ -122,7 +116,6 @@ class ChatService {
     if (since) q.createdAt = { $gt: new Date(since) };
     const messages = await ChatMessage.find(q).sort({ createdAt: 1 });
 
-    // Any owner message in the batch ⇒ visitor has now seen them.
     if (messages.some(m => m.from === 'owner') && conv.unreadForVisitor > 0) {
       conv.unreadForVisitor = 0;
       await conv.save();
@@ -136,8 +129,22 @@ class ChatService {
 
   // ── owner side (admin / moderator — the platform support team) ─
 
-  async listConversations({ status = 'open' } = {}) {
+  async listConversations({ status = 'open', from = null, to = null } = {}) {
     const q = status === 'all' ? {} : { status };
+
+    // Date range applies to `lastMessageAt` (activity), not `createdAt`.
+    // A conversation is "in range" if it had any activity in the window —
+    // that's what "recent support conversations" actually means.
+    if (from || to) {
+      q.lastMessageAt = {};
+      if (from) q.lastMessageAt.$gte = new Date(from);
+      if (to) {
+        const end = new Date(to);
+        end.setHours(23, 59, 59, 999);   // inclusive of the whole `to` day
+        q.lastMessageAt.$lte = end;
+      }
+    }
+
     return Conversation.find(q).sort({ lastMessageAt: -1 }).limit(LIST_LIMIT);
   }
 
@@ -189,14 +196,6 @@ class ChatService {
     return conv;
   }
 
-  async countUnreadForOwner() {
-    const rows = await Conversation.aggregate([
-      { $match: { status: 'open' } },
-      { $group: { _id: null, unread: { $sum: '$unreadForOwner' } } },
-    ]);
-    return rows[0]?.unread || 0;
-  }
-
   async deleteConversationById({ convId }) {
     if (!isObjectIdString(String(convId))) {
       throw new AppError('Conversation not found', 404);
@@ -204,7 +203,6 @@ class ChatService {
     const conv = await Conversation.findById(convId);
     if (!conv) throw new AppError('Conversation not found', 404);
 
-    // Snapshot metadata for the audit log before the docs are gone.
     const messageCount = await ChatMessage.countDocuments({ conversationId: conv._id });
     const snapshot = {
       _id: conv._id,
@@ -215,13 +213,67 @@ class ChatService {
       messageCount,
     };
 
-    // Delete messages first, then the conversation. If the second step fails
-    // we end up with an empty conversation the admin can retry deleting —
-    // far better than orphaning message documents.
     await ChatMessage.deleteMany({ conversationId: conv._id });
     await conv.deleteOne();
 
     return snapshot;
+  }
+
+  // Bulk delete — admin-only at the route layer. Skips IDs that don't exist
+  // or aren't valid ObjectIds rather than failing the whole batch, so a stale
+  // selection from a slow-polling client still goes through.
+  async bulkDeleteConversations({ ids }) {
+    if (!Array.isArray(ids) || !ids.length) {
+      throw new AppError('ids must be a non-empty array', 400);
+    }
+
+    const validIds = ids.filter(id => isObjectIdString(String(id)));
+    if (!validIds.length) {
+      throw new AppError('No valid conversation ids provided', 400);
+    }
+
+    const convs = await Conversation.find({ _id: { $in: validIds } });
+    if (!convs.length) {
+      return { deleted: 0, snapshots: [], messageTotal: 0 };
+    }
+
+    const convObjectIds = convs.map(c => c._id);
+
+    // Count messages per conversation in one aggregation — cheaper than
+    // one countDocuments per id.
+    const counts = await ChatMessage.aggregate([
+      { $match: { conversationId: { $in: convObjectIds } } },
+      { $group: { _id: '$conversationId', count: { $sum: 1 } } },
+    ]);
+    const countMap = new Map(counts.map(x => [String(x._id), x.count]));
+
+    const snapshots = convs.map(c => ({
+      _id: c._id,
+      visitorName: c.visitorName,
+      visitorEmail: c.visitorEmail,
+      status: c.status,
+      messageCount: countMap.get(String(c._id)) || 0,
+    }));
+
+    // Messages first, then conversations — same crash-safety rationale as
+    // the single-delete path. If the second step fails, empty conversations
+    // remain and the admin can retry; orphaned messages would be worse.
+    await ChatMessage.deleteMany({ conversationId: { $in: convObjectIds } });
+    await Conversation.deleteMany({ _id: { $in: convObjectIds } });
+
+    return {
+      deleted: snapshots.length,
+      snapshots,
+      messageTotal: snapshots.reduce((s, x) => s + x.messageCount, 0),
+    };
+  }
+
+  async countUnreadForOwner() {
+    const rows = await Conversation.aggregate([
+      { $match: { status: 'open' } },
+      { $group: { _id: null, unread: { $sum: '$unreadForOwner' } } },
+    ]);
+    return rows[0]?.unread || 0;
   }
 }
 

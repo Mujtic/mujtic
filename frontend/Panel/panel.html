@@ -815,12 +815,22 @@
     <section id="chat" class="section">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; flex-wrap:wrap; gap:0.75rem;">
         <h2 style="font-size:2rem; font-weight:700; margin:0;">Support Chat</h2>
-        <div style="display:flex; gap:0.75rem; align-items:center;">
+        <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
           <select class="select" id="chat-status-filter" onchange="filterChatList()">
             <option value="open">Open</option>
             <option value="closed">Closed</option>
             <option value="all">All</option>
           </select>
+          <input type="date" class="input" id="chat-date-from"
+                 style="min-width:unset; flex:0 0 150px;" onchange="filterChatList()"
+                 title="From date (activity)">
+          <input type="date" class="input" id="chat-date-to"
+                 style="min-width:unset; flex:0 0 150px;" onchange="filterChatList()"
+                 title="To date (activity)">
+          <button class="btn btn-ghost" onclick="clearChatDateFilters()"
+                  title="Clear date range">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
           <button class="btn btn-primary" onclick="loadChat()">
             <i class="fa-solid fa-rotate-right"></i> Refresh
           </button>

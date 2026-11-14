@@ -4,6 +4,9 @@
 let chatPollTimer     = null;
 let chatBadgeTimer    = null;
 let chatFilterStatus  = 'open';
+let chatDateFrom      = '';
+let chatDateTo        = '';
+let chatSelectedIds   = new Set();
 
 // visitors type arbitrary content — escape everything we render
 function _chatEsc(s) {
@@ -21,19 +24,123 @@ function _fmtChatTime(d) {
   return t.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
+// Inject the bulk-action bar + "select all" checkbox once, idempotently.
+// Keeps the sidebar HTML untouched — everything is added at runtime.
+function _ensureChatBulkUI() {
+  const header = document.querySelector('.chat-sidebar-header');
+  if (header && !document.getElementById('chat-select-all')) {
+    const label = document.createElement('label');
+    label.className = 'chat-select-all';
+    label.title = 'Select all visible';
+    label.innerHTML = `<input type="checkbox" id="chat-select-all"
+                              aria-label="Select all conversations"
+                              onchange="toggleChatSelectAll(this.checked)">`;
+    header.insertBefore(label, header.firstChild);
+  }
+
+  const list = document.getElementById('chat-conversation-list');
+  if (list && !document.getElementById('chat-bulk-bar')) {
+    const bar = document.createElement('div');
+    bar.id = 'chat-bulk-bar';
+    bar.className = 'chat-bulk-bar';
+    bar.style.display = 'none';
+    bar.innerHTML = `
+      <span id="chat-bulk-count" class="chat-bulk-count">0 selected</span>
+      <div class="chat-bulk-actions">
+        <button type="button" class="btn chat-bulk-delete" onclick="bulkDeleteChatConversations()">
+          <i class="fa-solid fa-trash"></i> Delete
+        </button>
+        <button type="button" class="btn chat-bulk-clear" onclick="clearChatSelection()"
+                aria-label="Clear selection">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>`;
+    list.parentNode.insertBefore(bar, list);
+  }
+}
+
+function _updateChatBulkBar() {
+  const bar = document.getElementById('chat-bulk-bar');
+  const count = document.getElementById('chat-bulk-count');
+  if (!bar) return;
+
+  // Only count selected conversations that are still visible in the current
+  // filtered list — keeps the counter honest if a filter change hid some.
+  const visible = new Set(conversations.map(c => c.id));
+  const active  = [...chatSelectedIds].filter(id => visible.has(id));
+
+  if (active.length === 0) {
+    bar.style.display = 'none';
+  } else {
+    bar.style.display = 'flex';
+    if (count) count.textContent = `${active.length} selected`;
+    // Delete button only for admins
+    const delBtn = bar.querySelector('.chat-bulk-delete');
+    if (delBtn) delBtn.style.display = (currentAdmin?.role === 'admin') ? 'inline-flex' : 'none';
+  }
+
+  _syncChatSelectAll(visible);
+}
+
+function _syncChatSelectAll(visibleIds) {
+  const cb = document.getElementById('chat-select-all');
+  if (!cb) return;
+  const total = visibleIds.size;
+  const selected = [...chatSelectedIds].filter(id => visibleIds.has(id)).length;
+  cb.checked = total > 0 && selected === total;
+  cb.indeterminate = selected > 0 && selected < total;
+  cb.disabled = total === 0;
+}
+
+function toggleChatSelect(id, checked) {
+  if (checked) chatSelectedIds.add(id);
+  else chatSelectedIds.delete(id);
+  renderChatList();
+  _updateChatBulkBar();
+}
+
+function toggleChatSelectAll(checked) {
+  if (checked) {
+    conversations.forEach(c => chatSelectedIds.add(c.id));
+  } else {
+    // Only unselect visible ones, keep any stale ones (harmless, they
+    // get pruned at delete time)
+    const visible = new Set(conversations.map(c => c.id));
+    chatSelectedIds = new Set([...chatSelectedIds].filter(id => !visible.has(id)));
+  }
+  renderChatList();
+  _updateChatBulkBar();
+}
+
+function clearChatSelection() {
+  chatSelectedIds.clear();
+  renderChatList();
+  _updateChatBulkBar();
+}
+
 async function loadChat() {
   try {
-    const res = await apiRequest(`/admin/chat/conversations?status=${chatFilterStatus}`);
+    const params = new URLSearchParams({ status: chatFilterStatus });
+    if (chatDateFrom) params.append('from', chatDateFrom);
+    if (chatDateTo)   params.append('to',   chatDateTo);
+
+    const res = await apiRequest(`/admin/chat/conversations?${params.toString()}`);
     conversations = (res.conversations || []).map(c => ({
       ...c,
       id: c._id?.toString() || c.id,
     }));
+
+    // Prune selection of anything the server no longer returns
+    const existing = new Set(conversations.map(c => c.id));
+    chatSelectedIds = new Set([...chatSelectedIds].filter(id => existing.has(id)));
   } catch (err) {
     console.error('Failed to load chat conversations', err);
     conversations = [];
+    chatSelectedIds.clear();
   }
   renderChatList();
   updateChatUnreadBadge();
+  _updateChatBulkBar();
 }
 
 async function loadChatUnread() {
@@ -58,22 +165,31 @@ function updateChatUnreadBadge() {
 }
 
 function renderChatList() {
+  _ensureChatBulkUI();
+
   const list = document.getElementById('chat-conversation-list');
   const count = document.getElementById('chat-conv-count');
   if (!list) return;
   if (count) count.textContent = conversations.length;
 
   if (!conversations.length) {
+    const hasDateFilter = chatDateFrom || chatDateTo;
+    const statusWord = chatFilterStatus === 'all' ? '' : chatFilterStatus;
+    const msg = hasDateFilter
+      ? `No ${statusWord ? statusWord + ' ' : ''}conversations in this date range`
+      : `No ${statusWord ? statusWord + ' ' : ''}conversations`;
     list.innerHTML = `
       <div class="chat-empty-list">
         <i class="fa-solid fa-inbox"></i>
-        No ${chatFilterStatus === 'all' ? '' : chatFilterStatus + ' '}conversations
+        ${msg}
       </div>`;
+    _updateChatBulkBar();
     return;
   }
 
   list.innerHTML = conversations.map(c => {
     const isActive = activeConversation?.id === c.id;
+    const isSelected = chatSelectedIds.has(c.id);
     const unread = Number(c.unreadForOwner) || 0;
     const name = c.visitorName || c.visitorEmail || 'Visitor';
     const initial = name.charAt(0).toUpperCase();
@@ -82,8 +198,14 @@ function renderChatList() {
     const isOwnerLast = c.lastMessageFrom === 'owner';
 
     return `
-      <div class="chat-conv-item ${isActive ? 'active' : ''} ${unread > 0 ? 'unread' : ''}"
+      <div class="chat-conv-item ${isActive ? 'active' : ''} ${unread > 0 ? 'unread' : ''} ${isSelected ? 'selected' : ''}"
            onclick="openConversation('${c.id}')">
+        <label class="chat-conv-check" onclick="event.stopPropagation()">
+          <input type="checkbox"
+                 ${isSelected ? 'checked' : ''}
+                 aria-label="Select conversation with ${_chatEsc(name)}"
+                 onchange="toggleChatSelect('${c.id}', this.checked)">
+        </label>
         <div class="chat-conv-avatar">${_chatEsc(initial)}</div>
         <div class="chat-conv-body">
           <div class="chat-conv-header">
@@ -97,6 +219,8 @@ function renderChatList() {
         ${unread > 0 ? `<span class="chat-conv-badge">${unread}</span>` : ''}
       </div>`;
   }).join('');
+
+  _updateChatBulkBar();
 }
 
 async function openConversation(id) {
@@ -110,7 +234,6 @@ async function openConversation(id) {
     renderChatList();
     renderChatThread();
     startThreadPolling();
-    // server marks unreadForOwner=0 on read; refresh the list after a beat
     setTimeout(() => loadChat().catch(() => {}), 400);
   } catch (err) {
     toast.error('Could not open conversation', err.message);
@@ -203,7 +326,6 @@ async function sendChatReply() {
     activeConversation.messages.push(res.message);
     renderChatThread();
 
-    // Update the sidebar snippet without a full reload
     const found = conversations.find(c => c.id === activeConversation.id);
     if (found) {
       found.lastMessageText = text.slice(0, 120);
@@ -245,8 +367,6 @@ async function closeConversation() {
 async function deleteChatConversation() {
   if (!activeConversation) return;
 
-  // Belt-and-braces: server enforces this too, but failing fast here keeps
-  // the moderator from ever seeing the modal.
   if (currentAdmin?.role !== 'admin') {
     toast.error('Admins only', 'Only admins can delete conversations.');
     return;
@@ -278,15 +398,14 @@ async function deleteChatConversation() {
     });
 
     activeConversation = null;
+    chatSelectedIds.delete(conv.id);
     stopThreadPolling();
     renderChatThread();
 
-    // Drop the deleted conversation from the sidebar instantly, then re-sync
-    // with the server (picks up any conversations the deletion may have
-    // hidden from the current filter).
     conversations = conversations.filter(c => c.id !== conv.id);
     renderChatList();
     updateChatUnreadBadge();
+    _updateChatBulkBar();
 
     toast.success('Conversation deleted', `${msgCount} message${msgCount === 1 ? '' : 's'} removed.`);
 
@@ -297,10 +416,84 @@ async function deleteChatConversation() {
   }
 }
 
+async function bulkDeleteChatConversations() {
+  if (currentAdmin?.role !== 'admin') {
+    toast.error('Admins only', 'Only admins can delete conversations.');
+    return;
+  }
+
+  // Only act on IDs still visible in the current filtered list
+  const visible = new Set(conversations.map(c => c.id));
+  const ids = [...chatSelectedIds].filter(id => visible.has(id));
+  if (!ids.length) {
+    toast.error('Nothing selected', 'Select at least one conversation.');
+    return;
+  }
+
+  const ok = await customConfirm(
+    `Permanently delete ${ids.length} conversation${ids.length === 1 ? '' : 's'}? ` +
+    `All messages in them will be destroyed. This cannot be undone.`,
+    'Delete Conversations',
+    `Delete ${ids.length}`,
+    '#ef4444'
+  );
+  if (!ok) return;
+
+  try {
+    const res = await apiRequest('/admin/chat/conversations/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+
+    addLog('danger', `Bulk deleted ${res.deleted} chat conversation(s)`, {
+      adminName: currentAdmin.name,
+      adminRole: currentAdmin.role,
+      count: res.deleted,
+      messageTotal: res.messageTotal,
+      conversationIds: ids,
+    });
+
+    // If the currently-open thread was deleted, reset
+    if (activeConversation && ids.includes(activeConversation.id)) {
+      activeConversation = null;
+      stopThreadPolling();
+      renderChatThread();
+    }
+
+    ids.forEach(id => chatSelectedIds.delete(id));
+    await loadChat();
+    await loadChatUnread();
+
+    toast.success(
+      `${res.deleted} conversation${res.deleted === 1 ? '' : 's'} deleted`,
+      res.messageTotal ? `${res.messageTotal} message${res.messageTotal === 1 ? '' : 's'} removed.` : ''
+    );
+  } catch (err) {
+    toast.error('Could not delete', err.message);
+  }
+}
+
 function filterChatList() {
   chatFilterStatus = document.getElementById('chat-status-filter')?.value || 'open';
+  chatDateFrom     = document.getElementById('chat-date-from')?.value || '';
+  chatDateTo       = document.getElementById('chat-date-to')?.value   || '';
+
+  // Changing filters invalidates the selection — start clean
+  chatSelectedIds.clear();
   activeConversation = null;
   renderChatThread();
+
+  loadChat().catch(() => {});
+}
+
+function clearChatDateFilters() {
+  const fromEl = document.getElementById('chat-date-from');
+  const toEl   = document.getElementById('chat-date-to');
+  if (fromEl) fromEl.value = '';
+  if (toEl)   toEl.value = '';
+  chatDateFrom = '';
+  chatDateTo = '';
+  chatSelectedIds.clear();
   loadChat().catch(() => {});
 }
 
@@ -322,13 +515,10 @@ function startThreadPolling() {
         renderChatThread();
       }
     } catch (err) {
-      // Another admin deleted this conversation while we were viewing it.
-      // The 404 from the backend means the doc is gone — reset UI cleanly.
       if (/not found|404/i.test(err?.message || '')) {
         stopThreadPolling();
         activeConversation = null;
         renderChatThread();
-        conversations = conversations.filter(c => c.id !== activeConversation?.id);
         loadChat().catch(() => {});
         toast.error('Conversation removed', 'Another admin deleted it.');
       }
