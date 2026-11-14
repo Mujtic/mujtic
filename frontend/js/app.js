@@ -4787,3 +4787,4 @@ Object.assign(MujticApp.prototype, {
 
 
 const app = new MujticApp();
+window.app = app;
