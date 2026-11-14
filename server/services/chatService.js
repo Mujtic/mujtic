@@ -196,6 +196,33 @@ class ChatService {
     ]);
     return rows[0]?.unread || 0;
   }
+
+  async deleteConversationById({ convId }) {
+    if (!isObjectIdString(String(convId))) {
+      throw new AppError('Conversation not found', 404);
+    }
+    const conv = await Conversation.findById(convId);
+    if (!conv) throw new AppError('Conversation not found', 404);
+
+    // Snapshot metadata for the audit log before the docs are gone.
+    const messageCount = await ChatMessage.countDocuments({ conversationId: conv._id });
+    const snapshot = {
+      _id: conv._id,
+      visitorId: conv.visitorId,
+      visitorName: conv.visitorName,
+      visitorEmail: conv.visitorEmail,
+      status: conv.status,
+      messageCount,
+    };
+
+    // Delete messages first, then the conversation. If the second step fails
+    // we end up with an empty conversation the admin can retry deleting —
+    // far better than orphaning message documents.
+    await ChatMessage.deleteMany({ conversationId: conv._id });
+    await conv.deleteOne();
+
+    return snapshot;
+  }
 }
 
 module.exports = new ChatService();

@@ -10,11 +10,12 @@ const serviceRequestController = require('../controllers/serviceRequestControlle
 const featuredController = require('../controllers/featuredController');
 const newsletterController = require('../controllers/newsletterController');
 const chatController = require('../controllers/chatController');
-const { chatWriteLimiter, chatPollLimiter } = require('../middleware/rateLimit');
 
 const auth = require('../middleware/auth');
 const { requireAdmin, requireModeratorOrAdmin } = require('../middleware/rbac');
 const { validate, convertWaitlistSchema } = require('../middleware/validation');
+const { chatWriteLimiter, chatPollLimiter } = require('../middleware/rateLimit');
+
 // Every /admin/* route is authenticated here. Role gates per-route below.
 router.use('/admin', auth);
 
@@ -107,8 +108,6 @@ router.patch('/admin/refunds/:id/complete', auth, requireAdmin, refundController
 // ── Featured ──
 router.patch('/admin/events/:id/featured', auth, requireModeratorOrAdmin, featuredController.setFeatured);
 
-
-
 // ── Newsletter subscribers ──
 // Admin-only. GET lists subscribers with optional status/search filters.
 // DELETE removes a subscriber (used for GDPR erasure requests).
@@ -116,11 +115,13 @@ router.get('/admin/newsletter', auth, requireAdmin, newsletterController.listSub
 router.get('/admin/newsletter/stats', auth, requireAdmin, newsletterController.getStats);
 router.delete('/admin/newsletter/:id', auth, requireAdmin, newsletterController.deleteSubscriber);
 
+// ════════════════════════════════════════════════════
+//  SUPPORT CHAT (inbox)
+//  Platform support inbox — admins + moderators. Organizers are event
+//  creators, not support staff; staff tokens are event-scoped scanners.
+//  Both are excluded by requireModeratorOrAdmin.
+// ════════════════════════════════════════════════════
 
-// ── Support chat (inbox) ──
-// Platform support inbox — admin + moderator only. Organizers and staff
-// have no access; staff tokens (scanners) are event-scoped and excluded
-// by requireModeratorOrAdmin.
 router.get('/admin/chat/unread-count',
   auth, requireModeratorOrAdmin, chatController.unreadCount);
 
@@ -135,5 +136,11 @@ router.post('/admin/chat/conversations/:id/reply',
 
 router.post('/admin/chat/conversations/:id/close',
   auth, requireModeratorOrAdmin, chatController.close);
+
+// Hard delete is admin-only (not moderators). Deletes the conversation
+// AND all its messages in a single operation. Moderators can close but
+// not destroy — closing preserves the record for later reference.
+router.delete('/admin/chat/conversations/:id',
+  auth, requireAdmin, chatController.deleteConversation);
 
 module.exports = router;

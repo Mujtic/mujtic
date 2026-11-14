@@ -93,6 +93,7 @@ async function loadData() {
     { name: 'messages',     run: loadMessages },
     { name: 'transactions', run: loadTransactions },
     { name: 'logs',         run: loadLogs },
+    { name: 'chat',         run: loadChat },
   ];
   const extraResults = await Promise.allSettled(extras.map(x => x.run()));
   extraResults.forEach((res, i) => {
@@ -106,6 +107,7 @@ async function loadData() {
     calculateStats, renderDashboard, renderUsers, renderEvents, renderTickets,
     renderPayouts, renderRefunds, renderWaitlist, renderServiceRequests,
     renderReports, populateWaitlistEventFilter, updateBroadcastAudiencePreview,
+    renderChatList,
   ].forEach(fn => {
     try { fn(); } catch (err) { console.error(`${fn.name} failed`, err); }
   });

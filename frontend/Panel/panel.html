@@ -136,6 +136,10 @@
       <div class="tab" id="tab-messages" onclick="showTab('messages', this)">
         <i class="fa-solid fa-paper-plane"></i> Messages
       </div>
+      <div class="tab" id="tab-chat" onclick="showTab('chat', this)">
+        <i class="fa-solid fa-comments"></i> Support Chat
+        <span id="chat-tab-badge" class="chat-tab-badge">0</span>
+      </div>
       <div class="tab" id="tab-service-requests" onclick="showTab('service-requests', this)">
         <i class="fa-solid fa-headset"></i> Service Requests
       </div>
@@ -805,6 +809,36 @@
         </table>
       </div>
       <div class="pagination-bar" id="messages-pagination"></div>
+    </section>
+
+    <!-- SUPPORT CHAT -->
+    <section id="chat" class="section">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; flex-wrap:wrap; gap:0.75rem;">
+        <h2 style="font-size:2rem; font-weight:700; margin:0;">Support Chat</h2>
+        <div style="display:flex; gap:0.75rem; align-items:center;">
+          <select class="select" id="chat-status-filter" onchange="filterChatList()">
+            <option value="open">Open</option>
+            <option value="closed">Closed</option>
+            <option value="all">All</option>
+          </select>
+          <button class="btn btn-primary" onclick="loadChat()">
+            <i class="fa-solid fa-rotate-right"></i> Refresh
+          </button>
+        </div>
+      </div>
+
+      <div class="chat-layout">
+        <aside class="chat-sidebar">
+          <div class="chat-sidebar-header">
+            <span>Conversations</span>
+            <span id="chat-conv-count" class="chat-conv-count">0</span>
+          </div>
+          <div id="chat-conversation-list" class="chat-conversation-list"></div>
+        </aside>
+        <div class="chat-thread-panel">
+          <div id="chat-thread-body"></div>
+        </div>
+      </div>
     </section>
 
     <!-- LOGS -->
@@ -1897,6 +1931,7 @@
 <script src="js/modules/messages.js"></script>
 <script src="js/modules/reports.js"></script>
 <script src="js/utils/export.js"></script>
+<script src="js/modules/chat.js"></script>
 <script src="js/main.js"></script>
 
 

@@ -106,3 +106,21 @@ exports.unreadCount = async (req, res, next) => {
     res.json({ success: true, count });
   } catch (err) { next(err); }
 };
+
+exports.deleteConversation = async (req, res, next) => {
+  try {
+    const snapshot = await chatService.deleteConversationById({ convId: req.params.id });
+
+    logService.audit(req.user.email, 'support_delete', String(req.params.id), {
+      type: 'danger',
+      adminId: req.user.id,
+      conversationId: String(req.params.id),
+      visitorName: snapshot.visitorName,
+      visitorEmail: snapshot.visitorEmail,
+      messageCount: snapshot.messageCount,
+      ...ctx(req),
+    });
+
+    res.json({ success: true, conversation: snapshot });
+  } catch (err) { next(err); }
+};
