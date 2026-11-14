@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>Page not found — MUJTIC</title>
+  <link rel="icon" sizes="32x32" href="/public/img/m-favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <script>
+    (function () {
+      var t = 'light';
+      try {
+        var s = localStorage.getItem('mujtic_theme');   // match whatever app.js uses
+        if (s === 'dark' || s === 'light') t = s;
+        else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) t = 'dark';
+      } catch (e) {}
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <style>
+    :root { color-scheme: light; --bg:#f4f7fa; --bg-2:#ffffff; --border:#dbe3ec; --border-2:#c5d0dd; --muted:#6b7f93; --dim:#4a6075; --bright:#0b1624; --coral:#e5484d; --teal:#0d9488; --teal-d:#0f766e; --on-teal:#ffffff; --teal-glow:rgba(13,148,136,.10); --ease:cubic-bezier(.22,1,.36,1); }
+    :root[data-theme="dark"] { color-scheme: dark; --bg:#0d1117; --bg-2:#131a23; --border:#243347; --border-2:#2d3f56; --muted:#4a6278; --dim:#7a96aa; --bright:#eaf2f8; --coral:#ff6b6b; --teal:#2dd4bf; --teal-d:#1aae9e; --on-teal:#0d1117; --teal-glow:rgba(45,212,191,.12); }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); color: var(--dim); font-family: 'Outfit', sans-serif; line-height: 1.6; }
+    .top { padding: 1.4rem 2.5rem; }
+    .logo-img { width: 10rem; display: block; }
+    .logo-img--dark { display: none; }
+    :root[data-theme="dark"] .logo-img--light { display: none; }
+    :root[data-theme="dark"] .logo-img--dark { display: block; }
+    main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 1rem 1.25rem 3rem; }
+    .wrap { width: min(880px, 100%); filter: drop-shadow(0 18px 36px rgba(0,0,0,.14)); }
+    .ticket {
+      display: grid; grid-template-columns: 1fr 230px; background: var(--bg-2); border-radius: 22px;
+      -webkit-mask: radial-gradient(circle 16px at calc(100% - 230px) 0, #0000 97%, #000) top / 100% 51% no-repeat, radial-gradient(circle 16px at calc(100% - 230px) 100%, #0000 97%, #000) bottom / 100% 51% no-repeat;
+      mask: radial-gradient(circle 16px at calc(100% - 230px) 0, #0000 97%, #000) top / 100% 51% no-repeat, radial-gradient(circle 16px at calc(100% - 230px) 100%, #0000 97%, #000) bottom / 100% 51% no-repeat;
+    }
+    .main { padding: 2.6rem 2.6rem 2.4rem; }
+    .kick { font: 500 .7rem 'JetBrains Mono', monospace; letter-spacing: .2em; text-transform: uppercase; color: var(--coral); margin-bottom: .6rem; }
+    .num { display: flex; align-items: center; gap: .03em; font: 800 clamp(4.4rem, 13vw, 7.6rem)/1 'Syne', sans-serif; color: var(--bright); margin-bottom: .6rem; }
+    .num svg { width: .8em; height: .8em; overflow: visible; }
+    .tile { fill: var(--teal); } .ring { stroke: var(--on-teal); transform-origin: 60px 60px; animation: spin 16s linear infinite; }
+    .st path { fill: var(--on-teal); } .st.mid path { fill: var(--coral); stroke: var(--on-teal); stroke-width: 1.1; } .mk path { fill: var(--on-teal); }
+    h1 { font: 700 1.5rem 'Syne', sans-serif; color: var(--bright); margin-bottom: .6rem; }
+    p { max-width: 440px; font-size: .95rem; color: var(--dim); }
+    .btns { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: 1.6rem; }
+    .btn { display: inline-flex; align-items: center; padding: .7rem 1.4rem; border-radius: 8px; font: 600 .9rem 'Outfit', sans-serif; text-decoration: none; cursor: pointer; transition: all .2s var(--ease); border: 1px solid transparent; }
+    .btn-primary { background: var(--teal); color: var(--on-teal); } .btn-primary:hover { background: var(--teal-d); transform: translateY(-1px); }
+    .btn-ghost { background: transparent; color: var(--bright); border-color: var(--border-2); } .btn-ghost:hover { border-color: var(--teal); color: var(--teal); }
+    .stub { position: relative; border-left: 2px dashed var(--border-2); display: flex; align-items: center; justify-content: center; background: var(--teal-glow); }
+    .stub span { writing-mode: vertical-rl; transform: rotate(180deg); font: 500 .72rem 'JetBrains Mono', monospace; letter-spacing: .32em; text-transform: uppercase; color: var(--teal); white-space: nowrap; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (max-width: 640px) {
+      .top { padding: 1.1rem 1.25rem; }
+      .ticket { grid-template-columns: 1fr; -webkit-mask: none; mask: none; border: 1px solid var(--border); }
+      .stub { display: none; } .main { padding: 2rem 1.5rem; }
+    }
+    @media (prefers-reduced-motion: reduce) { .ring { animation: none; } }
+  </style>
+</head>
+<body>
+<header class="top">
+  <a href="/frontend/public" aria-label="MUJTIC home">
+    <img class="logo-img logo-img--light" src="/public/img/logo-light.svg" alt="MUJTIC">
+    <img class="logo-img logo-img--dark" src="/public/img/logo-dark.svg" alt="" aria-hidden="true">
+  </a>
+</header>
+<main>
+  <div class="wrap">
+    <section class="ticket">
+      <div class="main">
+        <div class="kick">Error 404</div>
+        <div class="num" aria-label="404">4
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="tile" cx="60" cy="60" r="54"/>
+            <circle class="ring" cx="60" cy="60" r="48" fill="none" stroke-width="2.4" stroke-dasharray="1 6" stroke-linecap="round"/>
+            <g class="st"><path transform="translate(29 31.1) scale(.89)" d="M2 0 H16 Q18 0 18 2 V4.3 A1.7 1.7 0 0 0 18 7.7 V9 Q18 11 16 11 H2 Q0 11 0 9 V7.7 A1.7 1.7 0 0 0 0 4.3 V2 Q0 0 2 0 Z"/></g>
+            <g class="st mid"><path transform="translate(49.5 29.55) scale(1.17)" d="M2 0 H16 Q18 0 18 2 V4.3 A1.7 1.7 0 0 0 18 7.7 V9 Q18 11 16 11 H2 Q0 11 0 9 V7.7 A1.7 1.7 0 0 0 0 4.3 V2 Q0 0 2 0 Z"/></g>
+            <g class="st"><path transform="translate(75 31.1) scale(.89)" d="M2 0 H16 Q18 0 18 2 V4.3 A1.7 1.7 0 0 0 18 7.7 V9 Q18 11 16 11 H2 Q0 11 0 9 V7.7 A1.7 1.7 0 0 0 0 4.3 V2 Q0 0 2 0 Z"/></g>
+            <g class="mk"><path transform="translate(36 52)" d="M0 38 V22.4 A3.4 3.4 0 0 0 0 15.6 V0 H10 L24 22 L38 0 H48 V15.6 A3.4 3.4 0 0 0 48 22.4 V38 H39 V12 L24 34 L9 12 V38 Z"/></g>
+          </svg>4
+        </div>
+        <h1>This ticket doesn't lead anywhere.</h1>
+        <p>The page you're looking for has moved, or never existed. Let's get you back to the events.</p>
+        <div class="btns">
+          <a class="btn btn-primary" href="/frontend/public">Back to events</a>
+          <a class="btn btn-ghost" href="javascript:history.back()">Go back</a>
+        </div>
+      </div>
+      <div class="stub" aria-hidden="true"><span>Void &middot; No entry &middot; Void</span></div>
+    </section>
+  </div>
+</main>
+</body>
+</html>

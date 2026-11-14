@@ -1,0 +1,152 @@
+/* ============================================================
+   MUJTIC — branded screens: loader, empty states, scanner
+   Additive. Load AFTER css/style.css. Uses the tokens already in
+   style.css (--bg, --teal, --coral, --on-teal ...) so light/dark
+   switching works with no extra code.
+============================================================ */
+
+/* ---------- 1. LOADING SCREEN ---------- */
+#app-loader {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.1rem;
+  background: var(--bg);
+  transition: opacity .45s ease, visibility .45s;
+}
+#app-loader.done { opacity: 0; visibility: hidden; pointer-events: none; }
+.ml-stamp { width: 124px; height: 124px; overflow: visible; }
+.ml-tile { fill: var(--teal); }
+.ml-ring { stroke: var(--on-teal); transform-origin: 60px 60px; animation: ml-spin 14s linear infinite; }
+.ml-t path, .ml-m path { fill: var(--on-teal); }
+.ml-t2 path { fill: var(--coral); stroke: var(--on-teal); stroke-width: 1.1; }
+.ml-t { animation: ml-drop .6s var(--ease) both, ml-bob 2.2s ease-in-out infinite; }
+.ml-t1 { animation-delay: .1s, 1s; } .ml-t2 { animation-delay: .25s, 1.15s; } .ml-t3 { animation-delay: .4s, 1.3s; }
+.ml-m { animation: ml-rise .6s var(--ease) .55s both; }
+.ml-word {
+  display: flex; align-items: center; font: 700 1.7rem 'Outfit', sans-serif; letter-spacing: .08em; color: var(--bright);
+}
+.ml-word i {
+  display: inline-block; position: relative; width: .22em; height: .7em; margin: 0 .1em 0 .04em;
+  background: var(--coral); border-radius: .035em; animation: ml-flip 2.2s ease-in-out infinite;
+}
+.ml-word i::before, .ml-word i::after {
+  content: ''; position: absolute; top: 50%; width: .08em; height: .08em; border-radius: 50%;
+  background: var(--bg); transform: translateY(-50%);
+}
+.ml-word i::before { left: -.04em; } .ml-word i::after { right: -.04em; }
+.ml-sub { font: 500 .68rem 'JetBrains Mono', monospace; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); animation: ml-pulse 1.6s ease-in-out infinite; }
+@keyframes ml-spin { to { transform: rotate(360deg); } }
+@keyframes ml-drop { from { transform: translateY(-26px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ml-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.6px); } }
+@keyframes ml-rise { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ml-flip { 0%, 70%, 100% { transform: scaleX(1); } 85% { transform: scaleX(.15); } }
+@keyframes ml-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+
+/* small in-page spinner (replaces the plain ring) */
+.spinner { width: 36px; height: 36px; border: 3px dotted var(--teal); border-radius: 50%; animation: spin 1.6s linear infinite; }
+
+/* ---------- 2. EMPTY STATES ---------- */
+.es {
+  grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; text-align: center;
+  margin: .5rem 0; padding: 3.25rem 1.5rem; background: var(--bg-3);
+  border: 1.5px dashed var(--border-2); border-radius: var(--radius-lg);
+}
+.es.compact { padding: 2rem 1rem; }
+.es-ico {
+  position: relative; width: 64px; height: 64px; border-radius: 50%; margin-bottom: 1.15rem;
+  display: flex; align-items: center; justify-content: center; font-size: 1.4rem;
+  background: var(--teal-glow); color: var(--teal);
+}
+.es-ico::after { content: ''; position: absolute; inset: -7px; border-radius: 50%; border: 2px dotted var(--teal); opacity: .55; animation: spin 24s linear infinite; }
+.es h3 { font: 700 1.1rem 'Syne', sans-serif; color: var(--bright); margin-bottom: .35rem; }
+.es p { max-width: 380px; font-size: .85rem; line-height: 1.65; color: var(--muted); }
+.es .btn { margin-top: 1.1rem; }
+.es.error .es-ico { background: var(--coral-glow); color: var(--coral); }
+.es.error .es-ico::after { border-color: var(--coral); }
+/* keep the older plain markup consistent too */
+.empty-state { border: 1.5px dashed var(--border-2); border-radius: var(--radius-lg); background: var(--bg-3); }
+.table-empty { font-family: 'JetBrains Mono', monospace; font-size: .75rem !important; letter-spacing: .06em; }
+.notif-empty i { color: var(--teal); opacity: .5; }
+
+/* ---------- 3. TICKET SCANNER (always dark: it sits on a camera feed) ---------- */
+#scanner-screen {
+  position: fixed; inset: 0; z-index: 2000; display: none; flex-direction: column;
+  background: #0d1117; color: #eaf2f8; font-family: 'Outfit', sans-serif; overflow: hidden;
+}
+#scanner-screen.open { display: flex; }
+.sc-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #0d1117; }
+.sc-top {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 4; display: flex; align-items: center; gap: .7rem;
+  padding: max(.8rem, env(safe-area-inset-top)) 1rem 1.6rem; background: linear-gradient(#0d1117 25%, rgba(13,17,23,0));
+}
+.sc-logo { height: 24px; flex-shrink: 0; }
+.sc-event {
+  flex: 1; min-width: 0; appearance: none; -webkit-appearance: none; cursor: pointer;
+  background: rgba(19,26,35,.88); border: 1px solid #243347; color: #eaf2f8; border-radius: 100px;
+  padding: .55rem 1rem; font: 500 .84rem 'Outfit', sans-serif; text-overflow: ellipsis;
+}
+.sc-event option { background: #131a23; }
+.sc-btn {
+  width: 40px; height: 40px; flex-shrink: 0; border-radius: 50%; cursor: pointer; font-size: .95rem;
+  background: rgba(19,26,35,.88); border: 1px solid #243347; color: #eaf2f8; transition: all .2s;
+}
+.sc-btn:hover, .sc-btn.on { border-color: #2dd4bf; color: #2dd4bf; }
+.sc-frame {
+  position: absolute; z-index: 2; left: 50%; top: 45%; width: min(72vmin, 420px); height: min(72vmin, 420px);
+  transform: translate(-50%, -50%); border-radius: 22px; pointer-events: none;
+  box-shadow: 0 0 0 100vmax rgba(5,8,13,.64);
+}
+.sc-frame i { position: absolute; width: 44px; height: 44px; border: 5px solid #2dd4bf; }
+.sc-frame .tl { top: -3px; left: -3px; border-right: 0; border-bottom: 0; border-top-left-radius: 22px; }
+.sc-frame .tr { top: -3px; right: -3px; border-left: 0; border-bottom: 0; border-top-right-radius: 22px; }
+.sc-frame .bl { bottom: -3px; left: -3px; border-right: 0; border-top: 0; border-bottom-left-radius: 22px; }
+.sc-frame .br { bottom: -3px; right: -3px; border-left: 0; border-top: 0; border-bottom-right-radius: 22px; }
+.sc-line { position: absolute; left: 7%; right: 7%; height: 3px; border-radius: 3px; background: #ff6b6b; box-shadow: 0 0 16px rgba(255,107,107,.75); animation: sc-sweep 2.2s ease-in-out infinite; }
+@keyframes sc-sweep { 0%, 100% { top: 8%; } 50% { top: 92%; } }
+.sc-hint {
+  position: absolute; z-index: 2; left: 0; right: 0; top: calc(45% + min(36vmin, 210px) + 20px); text-align: center;
+  font: 500 .7rem 'JetBrains Mono', monospace; letter-spacing: .16em; text-transform: uppercase; color: #7a96aa;
+}
+.sc-bottom {
+  position: absolute; z-index: 4; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; gap: .7rem;
+  padding: 2.2rem 1rem max(1rem, env(safe-area-inset-bottom)); background: linear-gradient(rgba(13,17,23,0), #0d1117 42%);
+}
+.sc-stats { display: flex; justify-content: center; }
+.sc-stat {
+  display: inline-flex; align-items: center; gap: .5rem; padding: .4rem .95rem; border-radius: 100px;
+  background: rgba(45,212,191,.1); border: 1px solid rgba(45,212,191,.28); color: #2dd4bf;
+  font: 500 .74rem 'JetBrains Mono', monospace; letter-spacing: .08em;
+}
+.sc-manual { display: flex; gap: .5rem; max-width: 520px; width: 100%; margin: 0 auto; }
+.sc-manual input {
+  flex: 1; min-width: 0; padding: .75rem 1rem; border-radius: 12px; outline: none;
+  background: #131a23; border: 1px solid #243347; color: #eaf2f8; font: 500 .9rem 'JetBrains Mono', monospace;
+}
+.sc-manual input:focus { border-color: #2dd4bf; }
+.sc-manual button { padding: 0 1.2rem; border: 0; border-radius: 12px; cursor: pointer; background: #2dd4bf; color: #0d1117; font: 700 .85rem 'Outfit', sans-serif; }
+.sc-msg { position: absolute; z-index: 3; left: 1rem; right: 1rem; top: 38%; text-align: center; font-size: .9rem; color: #cbd5e1; }
+.sc-result {
+  position: absolute; z-index: 6; left: 0; right: 0; bottom: 0; text-align: center;
+  padding: 1.6rem 1.25rem max(1.6rem, env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0;
+  transform: translateY(110%); transition: transform .3s var(--ease, cubic-bezier(.22,1,.36,1)); cursor: pointer;
+}
+.sc-result.show { transform: none; }
+.sc-result.ok   { background: #0e2a25; border-top: 3px solid #6ee7b7; --c: #6ee7b7; }
+.sc-result.warn { background: #2b2410; border-top: 3px solid #fbbf24; --c: #fbbf24; }
+.sc-result.bad  { background: #2e1417; border-top: 3px solid #ff6b6b; --c: #ff6b6b; }
+.sc-r-ico {
+  position: relative; width: 84px; height: 84px; margin: 0 auto .9rem; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #0d1117; background: var(--c);
+}
+.sc-r-ico::after { content: ''; position: absolute; inset: -8px; border-radius: 50%; border: 2px dotted var(--c); opacity: .7; animation: spin 12s linear infinite; }
+.sc-r-title { font: 800 1.7rem 'Syne', sans-serif; letter-spacing: .02em; color: var(--c); }
+.sc-r-line { margin-top: .3rem; font-size: .92rem; color: #ccd9e3; }
+.sc-r-sub { margin-top: .2rem; font: 500 .7rem 'JetBrains Mono', monospace; letter-spacing: .1em; text-transform: uppercase; color: #7a96aa; }
+.sc-slots { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; margin-top: .85rem; }
+.sc-slots b { width: 12px; height: 12px; border-radius: 50%; background: #243347; }
+.sc-slots b.on { background: var(--c); }
+.sc-tap { margin-top: 1rem; font: 500 .62rem 'JetBrains Mono', monospace; letter-spacing: .16em; text-transform: uppercase; color: #4a6278; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-ring, .ml-t, .ml-m, .ml-word i, .es-ico::after, .sc-line, .sc-r-ico::after, .spinner { animation: none; }
+  .ml-t, .ml-m { opacity: 1; }
+}

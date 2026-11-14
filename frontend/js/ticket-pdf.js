@@ -61,7 +61,6 @@
       raw,
       group: !!(ticket.isGroupTicket && Number(ticket.totalSlots) > 1),
       slots: Number(ticket.totalSlots) || 1,
-      who: ticket.buyerName || ticket.userName || ticket.name || '',
       hasPrice: ticket.price != null && !isNaN(Number(ticket.price)),
     };
   }
@@ -211,7 +210,6 @@
     // details
     const rows = [['DATE', dateText(event)], ['VENUE', [event.venue, event.location].filter(Boolean).join(', ')]];
     rows.push(['TYPE', t.raw + (t.hasPrice && !(Number(ticket.price) === 0 && /FREE/.test(t.raw)) ? `  -  ${money(ticket.price, event.currency)}` : '')]);
-    if (t.who) rows.push(['ATTENDEE', String(t.who)]);
     if (t.group) rows.push(['ADMITS', `${t.slots} people, one scan each`]);
     let y = 73;
     rows.filter(r => r[1]).forEach(([k, v]) => {
@@ -280,7 +278,6 @@
     if (ds) { doc.text(ds, mx, y); y += 4.8; }
     const venue = [event.venue, event.location].filter(Boolean).join(', ');
     if (venue) { doc.text(doc.splitTextToSize(venue.toUpperCase(), 94)[0], mx, y); y += 4.8; }
-    if (t.who) doc.text(doc.splitTextToSize(String(t.who).toUpperCase(), 94)[0], mx, y);
 
     doc.setFont('courier', 'bold'); doc.setFontSize(8); doc.setTextColor(th.sub);
     tracked(doc, `No. ${t.id}`, mx, TY + TH - 7, 0.6, 'left');
