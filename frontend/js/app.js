@@ -2853,7 +2853,9 @@ class MujticApp {
       document.getElementById('organizer-phone').value = (this.currentUser && this.currentUser.phone) || '';
     }
     this.openModal('event-form-modal');
-    if (this.mapsLoaded) this.initMaps();
+    const mapsField = document.getElementById('maps-search-input')?.closest('.form-field');
+    if (mapsField) mapsField.style.display = '';
+    this._loadMaps().then(ok => { if (ok) this.initMaps(); else this._hideMapsField(); });
   }
 
   addTicketTypeInput(name = '', price = '', capacity = '', earlyBirdPrice = '', earlyBirdEnd = '', groupDiscountMinQty = '5', groupDiscount = '0') {
@@ -3001,6 +3003,33 @@ class MujticApp {
       this.mapsMarker = new google.maps.Marker({ position: { lat: existLat, lng: existLng }, map: this.mapsInstance, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#2dd4bf', fillOpacity: 1, strokeColor: '#0d1117', strokeWeight: 2 } });
     }
   }
+  _loadMaps() {
+    if (window.google && google.maps) return Promise.resolve(true);
+    if (this._mapsPromise) return this._mapsPromise;
+    const key = (window.MUJTIC_CONFIG || {}).mapsApiKey;
+    if (!key || key.startsWith('PASTE_')) {
+      console.warn('Google Maps disabled: set mapsApiKey in js/config.js');
+      return Promise.resolve(false);
+    }
+    this._mapsPromise = new Promise(resolve => {
+      window.__mujticMapsReady = () => { this.mapsLoaded = true; resolve(true); };
+      window.gm_authFailure = () => {                      // Google calls this when the key is rejected
+        this.showWarning('Google Maps key was rejected. Check the key and its restrictions.');
+        resolve(false);
+      };
+      const s = document.createElement('script');
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places&loading=async&callback=__mujticMapsReady`;
+      s.async = true;
+      s.onerror = () => { this._mapsPromise = null; resolve(false); };
+      document.head.appendChild(s);
+    });
+    return this._mapsPromise;
+  }
+
+  _hideMapsField() {
+    const f = document.getElementById('maps-search-input')?.closest('.form-field');
+    if (f) f.style.display = 'none';
+  }
 
   setMapLocation(lat, lng, address) {
     document.getElementById('event-lat').value     = lat;
@@ -3015,11 +3044,7 @@ class MujticApp {
     this.mapsInstance.panTo({ lat, lng }); this.mapsInstance.setZoom(15);
   }
 
-  initMapsCallback() {
-    this.mapsLoaded = true;
-    const modal = document.getElementById('event-form-modal');
-    if (modal && modal.classList.contains('show')) this.initMaps();
-  }
+
 
   // ─── Event Actions ────────────────────────────────────────
   async togglePublish(id) {
@@ -3745,9 +3770,10 @@ class MujticApp {
     this.on('refund-requests-btn',     'click', () => this.openOrgRefundsModal());
     this.on('org-refund-requests-btn', 'click', () => this.openOrgRefundsModal());
     this.on('coupons-btn',             'click', () => this.openCouponsModal());
-    const logoHome = document.getElementById('logo-home');
-    if (logoHome) logoHome.addEventListener('click', e => { e.preventDefault(); this.showSection('home'); });
-
+    ['logo-home', 'footer-logo-home'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', e => { e.preventDefault(); this.showSection('home'); });
+    });
     this.on('confirm-ok-btn',     'click', () => this._settleConfirm(true));
     this.on('confirm-cancel-btn', 'click', () => this._settleConfirm(false));
     this.on('confirm-backdrop',   'click', () => this._settleConfirm(false));
