@@ -1,5 +1,5 @@
 {
-  "name": " ",
+  "name": "mujtic",
   "version": "0.0.1",
   "description": "",
   "private": true,
@@ -10,7 +10,7 @@
     "express",
     "mongodb"
   ],
-  "license": "Glycr",
+  "license": "Mujtic",
   "author": "Fervtech Team",
   "scripts": {
     "test": "echo \"Error: no tests specified\" && exit 1",

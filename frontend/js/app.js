@@ -4,6 +4,10 @@ function esc(v) {
   ));
 }
 
+
+const COOKIE_KEY = 'mujtic_cookie_consent';
+
+
 // ─────────────────────────────────────────────────────────────
 //  GLOBAL SUCCESS TOASTS
 //  Any non-GET API call that succeeds and matches a row here
@@ -1047,24 +1051,80 @@ class MujticApp {
   }
 
 
-  // ─── Cookie Consent ───────────────────────────────────────
+  // ─── Cookie Consent (granular) ────────────────────────────
+  _readConsent() {
+    try {
+      const raw = localStorage.getItem(COOKIE_KEY);
+      if (!raw) return null;
+      if (raw === 'accepted') return { essential: true, preferences: true,  analytics: true,  marketing: true };
+      if (raw === 'rejected') return { essential: true, preferences: false, analytics: false, marketing: false };
+      const c = JSON.parse(raw);
+      return c && typeof c === 'object'
+        ? { essential: true, preferences: !!c.preferences, analytics: !!c.analytics, marketing: !!c.marketing }
+        : null;
+    } catch { return null; }
+  }
+
+  // essential is always true; before any choice, only user-initiated preferences (e.g. theme) work
+  _cookieAllowed(cat) {
+    if (cat === 'essential') return true;
+    const c = this._readConsent();
+    return c ? !!c[cat] : cat === 'preferences';
+  }
+
   initCookieBanner() {
-    const consent = localStorage.getItem('mujtic_cookie_consent');
-    if (consent !== null) return;
+    if (this._readConsent() !== null) return;
     const banner = document.getElementById('cookie-banner');
     if (banner) banner.style.display = 'block';
   }
 
-  handleCookieChoice(accepted) {
-    localStorage.setItem('mujtic_cookie_consent', accepted ? 'accepted' : 'rejected');
+  _hideCookieBanner() {
     const banner = document.getElementById('cookie-banner');
-    if (banner) {
-      banner.style.animation  = 'none';
-      banner.style.transform  = 'translateY(100%)';
+    if (banner && banner.style.display !== 'none') {
+      banner.style.animation = 'none';
+      banner.style.transform = 'translateY(100%)';
       banner.style.transition = 'transform 0.3s ease';
-      setTimeout(() => { banner.style.display = 'none'; }, 300);
+      setTimeout(() => { banner.style.display = 'none'; banner.style.transform = ''; }, 300);
     }
-    if (accepted) this.showSuccess('Cookies accepted. Thank you!');
+    setTimeout(() => this.initLocationPrompt?.(), 600);   // ask for location after cookies are settled
+  }
+
+  _commitConsent(c) {
+    const consent = {
+      essential: true, preferences: !!c.preferences, analytics: !!c.analytics, marketing: !!c.marketing,
+      savedAt: new Date().toISOString(),
+    };
+    try { localStorage.setItem(COOKIE_KEY, JSON.stringify(consent)); } catch {}
+    if (!consent.preferences) {
+      ['mujtic_theme', 'mujtic_location', 'notify_email', 'notify_sms'].forEach(k => { try { localStorage.removeItem(k); } catch {} });
+    }
+    // Any future analytics / marketing script should load only when these are true
+    window.MUJTIC_CONSENT = consent;
+    window.dispatchEvent(new CustomEvent('mujtic:consent', { detail: consent }));
+    this._hideCookieBanner();
+  }
+
+  handleCookieChoice(accepted) {          // banner: "Accept all" / "Essential only"
+    this._commitConsent({ preferences: accepted, analytics: accepted, marketing: accepted });
+    this.showSuccess(accepted ? 'Cookies accepted. Thank you!' : 'Only essential cookies will be used');
+  }
+
+  openCookieSettings() {
+    const c = this._readConsent() || { preferences: true, analytics: false, marketing: false };
+    ['preferences', 'analytics', 'marketing'].forEach(k => {
+      const el = document.getElementById('ck-' + k); if (el) el.checked = !!c[k];
+    });
+    this.openModal('cookie-settings-modal');
+  }
+
+  saveCookiePrefs(mode) {
+    const on = k => !!document.getElementById('ck-' + k)?.checked;
+    const c = mode === 'all'    ? { preferences: true,  analytics: true,  marketing: true }
+      : mode === 'reject' ? { preferences: false, analytics: false, marketing: false }
+        : { preferences: on('preferences'), analytics: on('analytics'), marketing: on('marketing') };
+    this._commitConsent(c);
+    this.closeAllModals();
+    this.showSuccess('Cookie preferences saved');
   }
 
   // ─── DASHBOARD ────────────────────────────────────────────
@@ -2410,7 +2470,7 @@ class MujticApp {
       if (eventFilter !== 'all' && x.evId !== eventFilter) return false;
       if (searchQuery) {
         const hay = [
-          x.userName, x.userEmail, x.eventTitle, x.ticketType,
+          x.userName, x.eventTitle, x.ticketType,
           raw.reason, raw._id, this._idOf(raw.ticketId),
         ].filter(Boolean).join(' ').toLowerCase();
         if (!hay.includes(searchQuery)) return false;
@@ -2441,13 +2501,14 @@ class MujticApp {
     }
 
     container.innerHTML = filtered.map(({ raw: r, x }) => {
-      const who = x.userName || x.userEmail || 'Customer';
+      const who = x.userName || 'Customer';
       return `<div class="org-refund-card">
         <div class="org-refund-header">
           <div>
             <div class="org-refund-title">${esc(x.eventTitle)}${x.ticketType ? ' — ' + esc(String(x.ticketType).toUpperCase()) : ''}</div>
             <div class="org-refund-meta" style="display:flex; flex-wrap:wrap; gap:0.25rem 1rem;">
-              <span><i class="fas fa-user"></i> ${esc(who)}${x.userName && x.userEmail ? ' · ' + esc(x.userEmail) : ''}</span>
+
+              <span><i class="fas fa-user"></i> ${esc(who)}</span>
               <span><i class="fas fa-calendar-alt"></i> Event: ${esc(this._fmtDate(x.eventDate))}</span>
               <span><i class="fas fa-clock"></i> Requested: ${esc(this._fmtDate(x.requestedAt))}</span>
             </div>
@@ -2486,7 +2547,6 @@ class MujticApp {
         this._csvCell(this._idOf(r.ticketId) || r.ticketId || ''),
         this._csvCell(x.eventTitle),
         this._csvCell(x.userName),
-        this._csvCell(x.userEmail),
         this._csvCell(String(x.ticketType || '').toUpperCase()),
         x.amount != null ? x.amount.toFixed(2) : '',
         this._csvCell(r.status),
@@ -3624,7 +3684,8 @@ class MujticApp {
 
 
     this.on('login-link', 'click', () => this.openModal('auth-modal'));
-    this.on('search-input',    'input',  () => { this.currentEventsPage = 1; this.hasMoreEvents = true; this.renderEvents(true); });
+    this.on('search-input', 'input', () => {clearTimeout(this._searchTimer);this._searchTimer = setTimeout(() => {this.currentEventsPage = 1; this.hasMoreEvents = true; this.renderEvents(true);}, 300);});
+    this.on('search-input', 'keydown', e => {if (e.key === 'Enter') document.getElementById('home')?.scrollIntoView({ behavior: 'smooth' });});
     this.on('category-filter', 'change', () => { this.currentEventsPage = 1; this.hasMoreEvents = true; this.renderEvents(true); });
     this.on('location-filter', 'change', () => { this.currentEventsPage = 1; this.hasMoreEvents = true; this.renderEvents(true); });
     this.on('clearFilters',    'click',  () => this.clearFilters());
@@ -4549,6 +4610,7 @@ MujticApp.prototype.init = async function () {
   this._watchSystemTheme();
   await _origInit.call(this);
   this._bindValidationFeatures();
+  this.initLocationPrompt();
 
   window.addEventListener('hashchange', () => {
     if (/^#event-/.test(location.hash)) this._routeFromHash();
@@ -4570,8 +4632,110 @@ MujticApp.prototype.showSection = function (section) {
 };
 
 // Bootstrap
-window.initGlycrMaps = function () {
+window.initMujticMaps = function () {
   if (window.app && typeof window.app.initMapsCallback === 'function') window.app.initMapsCallback();
 };
+
+
+// ─────────────────────────────────────────────────────────────
+//  LOCATION  (nearest-city detection, runs entirely in the browser)
+// ─────────────────────────────────────────────────────────────
+Object.assign(MujticApp.prototype, {
+  _cityCoords() {
+    const out = {};
+    document.querySelectorAll('#location-filter option[data-coords]').forEach(o => {
+      const [la, lo] = o.dataset.coords.split(',').map(Number);
+      if (Number.isFinite(la) && Number.isFinite(lo)) out[o.value] = [la, lo];
+    });
+    return out;
+  },
+
+  _geoNearest(lat, lng) {
+    const R = 6371, rad = d => d * Math.PI / 180;
+    let best = null;
+    for (const [key, [la, lo]] of Object.entries(this._cityCoords())) {
+      const a = Math.sin(rad(la - lat) / 2) ** 2 +
+        Math.cos(rad(lat)) * Math.cos(rad(la)) * Math.sin(rad(lo - lng) / 2) ** 2;
+      const km = 2 * R * Math.asin(Math.sqrt(a));
+      if (!best || km < best.km) best = { key, km };
+    }
+    return best;
+  },
+
+  _readLoc() { try { return JSON.parse(localStorage.getItem('mujtic_location')); } catch { return null; } },
+  _saveLoc(o) {
+    if (!this._cookieAllowed('preferences')) return;
+    try { localStorage.setItem('mujtic_location', JSON.stringify(o)); } catch {}
+  },
+
+  async initLocationPrompt() {
+    if (!('geolocation' in navigator)) return;
+    if (this._readConsent() === null) return;                        // wait until cookie banner is answered
+    if (document.getElementById('loc-prompt')?.style.display === 'flex') return;
+    try { if (sessionStorage.getItem('mujtic_loc_dismissed')) return; } catch {}
+    try {
+      if (navigator.permissions?.query) {
+        const p = await navigator.permissions.query({ name: 'geolocation' });
+        if (p.state === 'granted') { this.detectLocation({ silent: true }); return; }
+        if (p.state === 'denied') return;
+      }
+    } catch {}
+    const saved = this._readLoc();
+    if (saved && (saved.status === 'dismissed' || saved.status === 'denied')) return;
+    setTimeout(() => { const el = document.getElementById('loc-prompt'); if (el) el.style.display = 'flex'; }, 800);
+  },
+
+  _hideLocPrompt() { const el = document.getElementById('loc-prompt'); if (el) el.style.display = 'none'; },
+  allowLocation()   { this._hideLocPrompt(); this.detectLocation(); },
+  dismissLocation() {
+    this._hideLocPrompt();
+    try { sessionStorage.setItem('mujtic_loc_dismissed', '1'); } catch {}
+    this._saveLoc({ status: 'dismissed' });
+  },
+
+  detectLocation({ silent = false } = {}) {
+    if (!('geolocation' in navigator)) {
+      if (!silent) this.showWarning('Your browser doesn\'t support location access.');
+      return Promise.resolve(null);
+    }
+    const btn = document.getElementById('near-me-btn');
+    const busy = on => { if (btn) btn.classList.toggle('is-loading', on); };
+    busy(true);
+    return new Promise(resolve => {
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          busy(false);
+          const near = this._geoNearest(pos.coords.latitude, pos.coords.longitude);
+          const ok = near && near.km <= 75;                           // only match cities actually nearby
+          this._saveLoc({ status: 'granted', city: ok ? near.key : null });   // coordinates are never stored
+          const sel = document.getElementById('location-filter');
+          const opt = ok && sel ? [...sel.options].find(o => o.value === near.key) : null;
+          if (opt) {
+            if (!silent || !sel.value) {                              // never override a filter the user picked
+              sel.value = near.key;
+              this.currentEventsPage = 1; this.hasMoreEvents = true; this.renderEvents(true);
+              this.showSuccess(`Showing events near ${opt.textContent.trim()}`);
+            }
+          } else if (!silent) {
+            this.showInfo('We couldn\'t find a supported city near you. Showing all events.');
+          }
+          resolve(near);
+        },
+        err => {
+          busy(false);
+          if (err.code === 1) {
+            this._saveLoc({ status: 'denied' });
+            if (!silent) this.showWarning('Location is blocked. Enable it in your browser\'s site settings to see nearby events.');
+          } else if (!silent) {
+            this.showWarning('Couldn\'t get your location. Please try again.');
+          }
+          resolve(null);
+        },
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 }
+      );
+    });
+  },
+});
+
 
 const app = new MujticApp();

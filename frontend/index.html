@@ -28,18 +28,64 @@
     })();
   </script>
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/loader.css">
 </head>
 <body>
 <!-- COOKIE CONSENT -->
-<div id="cookie-banner" class="cookie-banner" role="dialog" aria-label="Cookie consent" style="display:none;">
-  <div class="cookie-banner-inner">
-    <div class="cookie-banner-text">
-      <strong>We use cookies</strong>
-      <span>We use cookies to improve your experience. By continuing, you agree to our <a href="#" onclick="app.openModal('cookie-modal')">Cookie Policy</a>.</span>
+<div id="cookie-settings-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="cookie-settings-title">
+  <div class="modal-backdrop"></div>
+  <div class="modal-box" style="max-width:560px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="cookie-settings-title"><i class="fas fa-cookie-bite" style="color:var(--teal);"></i> Cookie Preferences</h3>
+      <button class="modal-close" aria-label="Close">&times;</button>
     </div>
-    <div class="cookie-banner-actions">
-      <button class="btn btn-ghost btn-sm" id="cookie-reject-btn" onclick="app.handleCookieChoice(false)">Reject</button>
-      <button class="btn btn-primary btn-sm" id="cookie-accept-btn" onclick="app.handleCookieChoice(true)">Accept all</button>
+    <p class="settings-hint" style="margin-bottom:0;">Choose which cookies and similar storage Mujtic may use. You can change this any time from the footer.</p>
+    <div class="cookie-pref-list">
+      <div class="cookie-pref">
+        <div>
+          <div class="cookie-pref-title">Strictly necessary <span class="cookie-pref-tag">Always on</span></div>
+          <p>Sign-in session, security and your cookie choice. The site can't work without these, so they can't be turned off.</p>
+        </div>
+        <label class="switch"><input type="checkbox" id="ck-essential" checked disabled aria-label="Strictly necessary cookies (always on)"><span class="switch-slider"></span></label>
+      </div>
+      <div class="cookie-pref">
+        <div>
+          <div class="cookie-pref-title">Preferences</div>
+          <p>Remembers your theme, nearest city and notification settings.</p>
+        </div>
+        <label class="switch"><input type="checkbox" id="ck-preferences" aria-label="Preference cookies"><span class="switch-slider"></span></label>
+      </div>
+      <div class="cookie-pref">
+        <div>
+          <div class="cookie-pref-title">Analytics</div>
+          <p>Anonymous usage statistics that help us fix problems and improve Mujtic.</p>
+        </div>
+        <label class="switch"><input type="checkbox" id="ck-analytics" aria-label="Analytics cookies"><span class="switch-slider"></span></label>
+      </div>
+      <div class="cookie-pref">
+        <div>
+          <div class="cookie-pref-title">Marketing</div>
+          <p>Used to show relevant event promotions and measure campaigns.</p>
+        </div>
+        <label class="switch"><input type="checkbox" id="ck-marketing" aria-label="Marketing cookies"><span class="switch-slider"></span></label>
+      </div>
+    </div>
+    <div class="cookie-modal-actions">
+      <button class="btn btn-ghost" onclick="app.saveCookiePrefs('reject')">Essential only</button>
+      <button class="btn btn-outline" onclick="app.saveCookiePrefs('save')">Save my choices</button>
+      <button class="btn btn-primary" onclick="app.saveCookiePrefs('all')">Accept all</button>
+    </div>
+  </div>
+</div>
+
+<div id="loc-prompt" class="loc-prompt" role="dialog" aria-label="Location access" style="display:none;">
+  <div class="loc-prompt-icon"><i class="fas fa-location-dot"></i></div>
+  <div class="loc-prompt-body">
+    <strong>Find events near you</strong>
+    <span>Allow location access and we'll show what's on in your area. Matching happens in your browser; your coordinates aren't sent to us.</span>
+    <div class="loc-prompt-actions">
+      <button class="btn btn-primary btn-sm" onclick="app.allowLocation()"><i class="fas fa-location-crosshairs"></i> Allow</button>
+      <button class="btn btn-ghost btn-sm" onclick="app.dismissLocation()">Not now</button>
     </div>
   </div>
 </div>
@@ -107,16 +153,13 @@
     <div class="hero-left">
       <div class="hero-badge">
         <span>Ghana's premier event platform</span>
-        <span class="hero-badge-live"></span>
+
       </div>
       <h1 class="hero-title">
         Discover<br><span class="accent">Remarkable</span><br><span class="accent-2">Events.</span>
       </h1>
       <p class="hero-sub">Digital tickets, instant payouts, and the pulse of Ghana's cultural scene — all in one place.</p>
-      <div class="hero-search-row">
-        <input type="text" id="search-input" placeholder="Search events, artists, venues…">
-        <button onclick="app && app.renderEvents()"><i class="fas fa-search"></i> Search</button>
-      </div>
+
       <div class="hero-stats">
         <div><div class="hero-stat-val">12k<em>+</em></div><div class="hero-stat-key"><i class="fas fa-calendar-alt"></i> Events hosted</div></div>
         <div><div class="hero-stat-val">₵2M<em>+</em></div><div class="hero-stat-key"><i class="fas fa-money-bill-wave"></i> Paid out</div></div>
@@ -131,9 +174,12 @@
       </div>
     </div>
   </section>
-
   <div class="filters-bar">
     <span class="filters-label">Filter</span>
+    <div class="filter-search">
+      <i class="fas fa-search"></i>
+      <input type="search" id="search-input" placeholder="Search events, artists, venues…" autocomplete="off" aria-label="Search events">
+    </div>
     <select id="category-filter" class="filter-chip">
       <option value="">All Categories</option>
       <option value="music">Music</option><option value="food">Food & Drink</option>
@@ -145,22 +191,38 @@
     <select id="location-filter" class="filter-chip">
       <option value="">All Locations</option>
       <optgroup label="Accra">
-        <option value="osu">Osu</option> <option value="trassaco">Trassaco</option><option value="east-legon">East Legon</option>
-        <option value="airport-residential-area">Airport Residential Area</option><option value="cantonments">Cantonments</option>
-        <option value="labone">Labone</option><option value="labadi">Labadi</option><option value="tema">Tema</option>
-        <option value="madina">Madina</option><option value="Spintex">Spintex</option>
-        <option value="accra-central">Accra Central</option><option value="west-legon">West Legon</option>
+        <option value="osu" data-coords="5.5560,-0.1819">Osu</option>
+        <option value="trassaco" data-coords="5.6560,-0.0950">Trassaco</option>
+        <option value="east-legon" data-coords="5.6350,-0.1530">East Legon</option>
+        <option value="airport-residential-area" data-coords="5.6050,-0.1720">Airport Residential Area</option>
+        <option value="cantonments" data-coords="5.5750,-0.1750">Cantonments</option>
+        <option value="labone" data-coords="5.5700,-0.1750">Labone</option>
+        <option value="labadi" data-coords="5.5560,-0.1550">Labadi</option>
+        <option value="tema" data-coords="5.6698,-0.0166">Tema</option>
+        <option value="madina" data-coords="5.6800,-0.1650">Madina</option>
+        <option value="Spintex" data-coords="5.6350,-0.1000">Spintex</option>
+        <option value="accra-central" data-coords="5.5500,-0.2050">Accra Central</option>
+        <option value="west-legon" data-coords="5.6450,-0.2000">West Legon</option>
       </optgroup>
       <optgroup label="Other Cities">
-        <option value="kumasi">Kumasi</option><option value="takoradi">Takoradi</option>
-        <option value="cape-coast">Cape Coast</option><option value="tamale">Tamale</option>
-        <option value="ho">Ho</option><option value="sunyani">Sunyani</option>
-        <option value="koforidua">Koforidua</option>
+        <option value="kasoa" data-coords="5.5340,-0.4170">Kasoa</option>
+        <option value="kumasi" data-coords="6.6885,-1.6244">Kumasi</option>
+        <option value="takoradi" data-coords="4.8962,-1.7554">Takoradi</option>
+        <option value="cape-coast" data-coords="5.1053,-1.2466">Cape Coast</option>
+        <option value="tamale" data-coords="9.4075,-0.8534">Tamale</option>
+        <option value="aburi" data-coords="5.8500,-0.1740">Aburi</option>
+        <option value="winneba" data-coords="5.3511,-0.6231">Winneba</option>
+        <option value="ho" data-coords="6.6008,0.4713">Ho</option>
+        <option value="sunyani" data-coords="7.3349,-2.3123">Sunyani</option>
+        <option value="koforidua" data-coords="6.0941,-0.2591">Koforidua</option>
+        <option value="akosombo" data-coords="6.2970,0.0520">Akosombo</option>
       </optgroup>
       <option value="online-events">Online</option>
     </select>
     <button class="filter-clear" id="clearFilters">Clear all</button>
+    <button type="button" class="filter-chip" id="near-me-btn" onclick="app.detectLocation()"><i class="fas fa-location-crosshairs"></i> Near me</button>
     <button class="btn btn-primary" id="create-event-btn-hero" style="display:none; margin-left:auto; font-size:0.82rem;"><i class="fas fa-plus"></i> New Event</button>
+
   </div>
 
   <div class="events-section" id="home">
@@ -176,16 +238,32 @@
 
 <!-- ===== ABOUT PAGE ===== -->
 <section class="section" id="about-page" style="padding-top:calc(64px + 2.5rem);">
-  <div class="about-hero">
-    <div class="about-hero-content">
-      <div class="hero-badge" style="margin:0 auto 1.5rem;">
-        <span>Our Story</span>
-        <span class="hero-badge-live"></span>
+  <div class="about-wrap">
+    <div class="about-hero">
+      <div class="about-hero-content">
+        <div class="hero-badge" style="margin:0 auto 1.5rem;"><span>Our Story</span></div>
+        <h1 class="about-title">Built for Ghana's <span style="color:var(--teal);">Vibrant</span> Event Scene</h1>
+        <p class="about-subtitle">Mujtic connects event creators with audiences across Ghana — from Accra's music festivals to Kumasi's cultural celebrations.</p>
       </div>
-      <h1 class="about-title">Built for Ghana's <span style="color:var(--teal);">Vibrant</span> Event Scene</h1>
-      <p class="about-subtitle">Mujtic connects event creators with audiences across Ghana — from Accra's music festivals to Kumasi's cultural celebrations.</p>
     </div>
-  </div>
+
+    <div class="about-story">
+      <div class="about-story-text">
+        <div class="about-eyebrow">Where we started</div>
+        <h2>Ghana's events deserve better than screenshots and cash at the gate.</h2>
+        <p>Mujtic began with a simple frustration: brilliant events were being held back by clumsy ticketing. Tickets were photocopied, payments were chased through scattered chats, and organisers waited days to see their money.</p>
+        <p>We built Mujtic around how Ghana actually pays and plans: Mobile Money first, QR tickets that work on any phone, and payouts that are fast and transparent. No hidden steps, no guesswork.</p>
+        <p>Today, organisers sell tickets, manage gate staff, validate entry in real time and track revenue from a single dashboard, while attendees get a ticket they can trust in seconds.</p>
+        <div class="story-quote">“If an event is worth hosting, it should be effortless to sell out.”</div>
+      </div>
+      <ol class="story-timeline">
+        <li class="story-step"><div class="story-step-label">Chapter 01</div><h4>The problem</h4><p>Fake tickets, delayed payouts and no visibility for organisers, especially smaller promoters and campus events.</p></li>
+        <li class="story-step"><div class="story-step-label">Chapter 02</div><h4>The build</h4><p>A platform designed mobile-first, with MoMo and card payments, QR validation and staff tools from day one.</p></li>
+        <li class="story-step"><div class="story-step-label">Chapter 03</div><h4>The launch</h4><p>Opened to organisers across Accra, then Kumasi, Takoradi, Cape Coast, Tamale and beyond.</p></li>
+        <li class="story-step"><div class="story-step-label">Chapter 04</div><h4>Today</h4><p>Thousands of events, a growing community, and a roadmap shaped by the organisers who use Mujtic every week.</p></li>
+      </ol>
+    </div>
+
   <div class="about-grid">
     <div class="about-card">
       <div class="about-card-icon"><i class="fas fa-rocket"></i></div>
@@ -218,6 +296,7 @@
     <h2>Ready to create your event?</h2>
     <p>Join thousands of organizers already using Mujtic.</p>
     <button class="btn btn-primary" onclick="app.openModal('auth-modal')"><i class="fas fa-plus"></i> Get Started Free</button>
+  </div>
   </div>
 </section>
 
@@ -674,6 +753,7 @@
       <a href="#" onclick="app.openModal('terms-modal')">Terms</a>
       <a href="#" onclick="app.openModal('privacy-modal')">Privacy</a>
       <a href="#" onclick="app.openModal('cookie-modal')">Cookies</a>
+      <a href="#" onclick="app.openCookieSettings(); return false;">Cookie settings</a>
     </div>
   </div>
 </footer>
@@ -1486,33 +1566,28 @@
     <!-- Account -->
     <div class="settings-panel" id="settings-tab-account">
       <div class="settings-info-row"><span>Signed in as</span><strong id="settings-account-email">—</strong></div>
-      <div class="danger-zone">
+
+      <div class="danger-zone warn">
         <h4><i class="fas fa-user-slash"></i> Deactivate account</h4>
-        <p>Deactivating hides your profile and any events you organise, and signs you out. Your tickets, payouts and history are kept. Sign in again at any time to reactivate.</p>
+        <p>Hides your profile and any events you organise, and signs you out. Your tickets, payouts and history are kept. Sign in again at any time to reactivate.</p>
         <div class="form-field">
           <label class="form-label">Confirm with your password</label>
           <input type="password" id="deactivate-password" class="input" placeholder="••••••••" autocomplete="current-password">
           <span class="field-error" id="deactivate-password-err"></span>
         </div>
-        <button type="button" class="btn btn-danger btn-block" id="deactivate-btn" onclick="app.deactivateAccount()">Deactivate my account</button>
+        <button type="button" class="btn btn-warn" id="deactivate-btn" onclick="app.deactivateAccount()"><i class="fas fa-user-slash"></i> Deactivate my account</button>
       </div>
 
-      <!-- ↓ ADD: permanent delete -->
-      <div class="danger-zone" style="margin-top:1.25rem; border-color:rgba(229,72,77,0.6);">
+      <div class="danger-zone">
         <h4><i class="fas fa-trash-alt"></i> Delete account permanently</h4>
-        <p>This <strong>permanently deletes</strong> your account. Your profile, tickets, reminders and reviews are removed. Your name and email are scrubbed from our records. <strong>This cannot be undone.</strong> Payouts, refunds and tax records are kept for legal reasons but are no longer linked to you by name.</p>
-        <p style="font-size:0.78rem; color:var(--coral); margin-top:0.5rem;">
-          <i class="fas fa-exclamation-triangle"></i>
-          You cannot delete your account while you have upcoming events you organise, unpaid payouts, or active tickets. Resolve those first.
-        </p>
+        <p>Your profile, tickets, reminders and reviews are removed and your name and email are scrubbed from our records. Payouts, refunds and tax records are kept for legal reasons but are no longer linked to you by name. <strong>This cannot be undone.</strong></p>
+        <div class="danger-note"><i class="fas fa-exclamation-triangle"></i><span>You can't delete your account while you have upcoming events you organise, unpaid payouts, or active tickets.</span></div>
         <div class="form-field">
           <label class="form-label">Confirm with your password</label>
           <input type="password" id="delete-account-password" class="input" placeholder="••••••••" autocomplete="current-password">
           <span class="field-error" id="delete-account-password-err"></span>
         </div>
-        <button type="button" class="btn btn-danger btn-block" id="delete-account-btn" onclick="app.deleteAccount()">
-          <i class="fas fa-trash-alt"></i> Permanently delete my account
-        </button>
+        <button type="button" class="btn btn-danger" id="delete-account-btn" onclick="app.deleteAccount()"><i class="fas fa-trash-alt"></i> Permanently delete my account</button>
       </div>
     </div>
   </div>
@@ -1777,9 +1852,10 @@
     if (window.app && typeof window.app.initMaps === 'function') window.app.initMaps();
   };
 </script>
-<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_MAPS_API_KEY&libraries=places&callback=initGlycrMaps" async defer></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_KEY&libraries=places&callback=initMujticMaps" async defer></script>
 <script src="js/config.js"></script>
 <script src="js/app.js"></script>
+<script src="js/loader.js"></script>
 <script src="js/ticket-pdf.js"></script>
 </body>
 </html>
