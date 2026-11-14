@@ -59,7 +59,15 @@ router.use(ticketRoutes);
 router.use(waitlistRoutes);
 router.use(serviceRequestRoutes);
 router.use(newsletterRoutes);
-router.use(chatRoutes);
+
+// Chat must be mounted with an explicit '/chat' prefix. chat.js defines
+// bare paths ('/start', '/:id', '/conversations'). Without the prefix,
+// router.get('/:id') would become GET /api/:id and intercept every
+// single-segment GET route mounted below (payouts, settings, refunds,
+// coupons, messages) — returning "visitorId is required" instead of
+// reaching the real handler.
+router.use('/chat', chatRoutes);
+
 // ── Authenticated user scope ──
 // Data scoped to req.user.id — payouts (organizer), settings (self), refunds
 // (self + organizer), analytics (organizer), coupons (organizer), service

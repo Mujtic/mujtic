@@ -9,6 +9,8 @@ const refundController = require('../controllers/refundController');
 const serviceRequestController = require('../controllers/serviceRequestController');
 const featuredController = require('../controllers/featuredController');
 const newsletterController = require('../controllers/newsletterController');
+const chatController = require('../controllers/chatController');
+const { chatWriteLimiter, chatPollLimiter } = require('../middleware/rateLimit');
 
 const auth = require('../middleware/auth');
 const { requireAdmin, requireModeratorOrAdmin } = require('../middleware/rbac');
@@ -113,5 +115,25 @@ router.patch('/admin/events/:id/featured', auth, requireModeratorOrAdmin, featur
 router.get('/admin/newsletter', auth, requireAdmin, newsletterController.listSubscribers);
 router.get('/admin/newsletter/stats', auth, requireAdmin, newsletterController.getStats);
 router.delete('/admin/newsletter/:id', auth, requireAdmin, newsletterController.deleteSubscriber);
+
+
+// ── Support chat (inbox) ──
+// Platform support inbox — admin + moderator only. Organizers and staff
+// have no access; staff tokens (scanners) are event-scoped and excluded
+// by requireModeratorOrAdmin.
+router.get('/admin/chat/unread-count',
+  auth, requireModeratorOrAdmin, chatController.unreadCount);
+
+router.get('/admin/chat/conversations',
+  auth, requireModeratorOrAdmin, chatController.listConversations);
+
+router.get('/admin/chat/conversations/:id',
+  auth, requireModeratorOrAdmin, chatPollLimiter, chatController.getConversation);
+
+router.post('/admin/chat/conversations/:id/reply',
+  auth, requireModeratorOrAdmin, chatWriteLimiter, chatController.ownerReply);
+
+router.post('/admin/chat/conversations/:id/close',
+  auth, requireModeratorOrAdmin, chatController.close);
 
 module.exports = router;
