@@ -155,18 +155,38 @@ class MujticApp {
       stack.setAttribute('aria-live', 'polite');
       document.body.appendChild(stack);
     }
-    const icons = { success: 'fa-circle-check', error: 'fa-circle-exclamation', warning: 'fa-triangle-exclamation', info: 'fa-circle-info' };
+    const icons = { success: 'fa-check', error: 'fa-xmark', warning: 'fa-exclamation', info: 'fa-info' };
     const t = icons[type] ? type : 'info';
+    if (t === 'error') duration = Math.max(duration, 5000);   // errors stay a little longer
+
     const el = document.createElement('div');
     el.className = `toast toast-${t}`;
     el.setAttribute('role', t === 'error' ? 'alert' : 'status');
-    el.innerHTML = `<i class="fas ${icons[t]}"></i><span></span>`;
-    el.querySelector('span').textContent = message;
-    const dismiss = () => { el.classList.add('leaving'); setTimeout(() => el.remove(), 200); };
+    el.style.setProperty('--toast-ms', `${duration}ms`);
+    el.innerHTML =
+      `<span class="toast-icon"><i class="fas ${icons[t]}"></i></span>` +
+      `<span class="toast-msg"></span>` +
+      `<button type="button" class="toast-close" aria-label="Dismiss"><i class="fas fa-xmark"></i></button>` +
+      `<span class="toast-bar"></span>`;
+    el.querySelector('.toast-msg').textContent = message;
+
+    let timer, started, remaining = duration;
+    const dismiss = () => {
+      clearTimeout(timer);
+      if (el.classList.contains('leaving')) return;
+      el.classList.add('leaving');
+      setTimeout(() => el.remove(), 220);
+    };
+    const start = () => { started = Date.now(); timer = setTimeout(dismiss, remaining); el.classList.remove('paused'); };
+    const pause = () => { clearTimeout(timer); remaining -= Date.now() - started; el.classList.add('paused'); };
+
+    el.addEventListener('mouseenter', pause);
+    el.addEventListener('mouseleave', start);
     el.addEventListener('click', dismiss);
+
     stack.appendChild(el);
     while (stack.children.length > 3) stack.firstElementChild.remove();
-    setTimeout(dismiss, duration);
+    start();
   }
   showSuccess(m) { this.showToast(m, 'success'); }
   showError(m)   { this.showToast(m, 'error'); }
@@ -1823,6 +1843,8 @@ class MujticApp {
           const isEB    = this.isEarlyBird(event, type);
           const bens    = this.getTicketBenefits(type);
           const priceStr = price === 0 ? 'Free' : `${sym}${price}${isEB ? ' (Early Bird)' : ''}`;
+          const priceHtml = price === 0 ? 'Free' : `${esc(sym)}${esc(price)}`;
+          const ebTag     = (isEB && price !== 0) ? '<span class="tier-eb">Early bird</span>' : '';
 
           if (avail <= 0) {
             return `<div class="ticket-tier">
@@ -1841,7 +1863,7 @@ class MujticApp {
             <div class="ticket-tier-avail">${this.renderAvailabilityBar(avail, data.capacity)}</div>
             <div class="ticket-tier-benefits">${esc(bens.join(' · '))}</div>
           </div>
-          <div class="tier-price${price === 0 ? ' free' : ''}">${esc(priceStr)}</div>
+          <div class="tier-price${price === 0 ? ' free' : ''}">${priceHtml}${ebTag}</div>
         </div>`;
         }).join('') || '<div class="ep-notice">No tickets available yet.</div>';
       }

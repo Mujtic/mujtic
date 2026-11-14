@@ -1008,12 +1008,19 @@ select.input option, select.input optgroup { background: var(--bg-3); color: var
 .detail-meta-item { font-size: 0.8rem; color: var(--dim); display: flex; align-items: center; gap: 0.35rem; }
 .detail-desc { font-size: 0.88rem; color: var(--muted); line-height: 1.8; margin-bottom: 1.5rem; }
 .tickets-label { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.6rem; }
-.ticket-tier { display: flex; align-items: center; justify-content: space-between; padding: 0.9rem 1.1rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 0.5rem; cursor: pointer; transition: all 0.18s; }
+.ticket-tier {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 0.35rem 1rem;
+  padding: 0.95rem 1.1rem; background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius); margin-bottom: 0.6rem; cursor: pointer; transition: all 0.18s;
+}
+.ticket-tier > div:first-child { min-width: 0; }
+.ticket-tier-avail { margin-top: 0.15rem; }
 .ticket-tier:hover { border-color: var(--teal); background: var(--bg-3); }
 .ticket-tier-name { font-weight: 600; color: var(--text); font-size: 0.88rem; margin-bottom: 0.15rem; }
 .ticket-tier-avail { font-size: 0.73rem; color: var(--muted); }
 .ticket-tier-benefits { font-size: 0.7rem; color: var(--muted); margin-top: 0.25rem; }
-.tier-price { font-family: 'JetBrains Mono', monospace; font-size: 1rem; color: var(--teal); }
+.tier-price { font-family: 'JetBrains Mono', monospace; font-size: 1.05rem; font-weight: 500; color: var(--teal); text-align: right; white-space: nowrap; line-height: 1.2; }
+.tier-eb { display: block; margin-top: 0.3rem; font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); font-weight: 500; }
 .tier-price.free { color: var(--mint); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
 .tier-price.sold-out-lbl { color: var(--coral); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
 
@@ -1191,28 +1198,57 @@ input[type="file"] { display: none; }
 .scheduled-badge { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.18rem 0.55rem; background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.25); border-radius: 100px; font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gold); }
 
 /* ============================================================
-   TOASTS — global, top-centre, stacked
+   TOASTS — top-centre, stacked, auto-dismiss with progress bar
 ============================================================ */
 .toast-stack {
   position: fixed; top: 76px; left: 50%; transform: translateX(-50%); z-index: 4000;
-  display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
-  width: min(92vw, 420px); pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
+  width: min(92vw, 400px); pointer-events: none;
 }
 .toast {
-  pointer-events: auto; display: flex; align-items: center; gap: 0.65rem; width: 100%;
-  padding: 0.75rem 1rem; background: var(--bg-2); color: var(--text);
-  font-size: 0.86rem; cursor: pointer;
-  border: 1px solid var(--border-2); border-left-width: 4px; border-radius: var(--radius);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-  animation: toast-drop 0.22s var(--ease);
+  --toast-c: var(--sky); --toast-ms: 3500ms;
+  position: relative; overflow: hidden; pointer-events: auto; width: 100%;
+  display: flex; align-items: center; gap: 0.8rem;
+  padding: 0.7rem 0.7rem 0.85rem 0.75rem;
+  background: var(--bg-2); color: var(--text);
+  border: 1px solid var(--border-2); border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.22), 0 2px 6px rgba(0,0,0,0.12);
+  cursor: pointer; font-size: 0.86rem; line-height: 1.4;
+  animation: toast-in 0.32s var(--ease);
+  transition: opacity 0.2s, transform 0.2s;
 }
-.toast.leaving { opacity: 0; transform: translateY(-8px); transition: all 0.2s; }
-.toast i { flex-shrink: 0; }
-.toast-success { border-left-color: var(--success); } .toast-success i { color: var(--success); }
-.toast-error   { border-left-color: var(--error); }   .toast-error i   { color: var(--error); }
-.toast-warning { border-left-color: var(--warning); } .toast-warning i { color: var(--warning); }
-.toast-info    { border-left-color: var(--sky); }     .toast-info i    { color: var(--sky); }
-@keyframes toast-drop { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+.toast.leaving { opacity: 0; transform: translateY(-10px) scale(0.97); }
+
+.toast-icon {
+  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.9rem; color: var(--toast-c);
+  background: var(--bg-3);
+  background: color-mix(in srgb, var(--toast-c) 15%, transparent);
+}
+.toast-msg { flex: 1; min-width: 0; color: var(--bright); font-weight: 500; overflow-wrap: anywhere; }
+.toast-close {
+  flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; border: none;
+  background: transparent; color: var(--muted); cursor: pointer; font-size: 0.75rem;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+}
+.toast-close:hover { background: var(--surface); color: var(--text); }
+
+/* countdown bar */
+.toast-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+  background: var(--toast-c); transform-origin: left center;
+  animation: toast-bar var(--toast-ms) linear forwards;
+}
+.toast.paused .toast-bar { animation-play-state: paused; }
+
+.toast-success { --toast-c: var(--success); }
+.toast-error   { --toast-c: var(--error); }
+.toast-warning { --toast-c: var(--warning); }
+.toast-info    { --toast-c: var(--sky); }
+
+@keyframes toast-in  { from { opacity: 0; transform: translateY(-14px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes toast-bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 
 /* ============================================================
    SETTINGS TABS
@@ -1570,4 +1606,5 @@ body { transition: background 0.25s var(--ease), color 0.25s var(--ease); }
 
 @media (prefers-reduced-motion: reduce) {
   .toast, .confirm-box, .settings-panel.active { animation: none; }
+  .toast-bar { animation: none; display: none; }
 }
