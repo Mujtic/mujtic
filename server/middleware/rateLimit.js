@@ -37,16 +37,16 @@ const buildHandler = (limiterName) => (req, res, next, options) => {
 // ============================================================
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-
   limit: process.env.NODE_ENV === 'production' ? 300 : 1000,
-
   standardHeaders: true,
   legacyHeaders: false,
-
   message: 'Too many requests. Please wait.',
   handler: buildHandler('api'),
 
-  skip: (req) => req.path === '/health' || req.path === '/',
+  // Skip /health and / — and /chat/*. Chat has its own buckets
+  // (chatWriteLimiter, chatPollLimiter) because the widget's
+  // 3s polling would otherwise exhaust apiLimiter's 300/15min.
+  skip: (req) => req.path === '/health' || req.path === '/' || req.path.startsWith('/chat'),
 
   keyGenerator: (req) => clientIp(req),
 });
@@ -146,6 +146,48 @@ const submitLimiter = rateLimit({
   keyGenerator: (req) => clientIp(req),
 });
 
+
+// ============================================================
+// 8. CHAT LIMITERS
+//    The visitor widget polls GET /chat/:id every 3s while open,
+//    and the owner inbox polls GET /chat/conversations/:id every
+//    4s. Both would consume the entire apiLimiter budget alone
+//    (300/15min = one poll every 3s exactly). Chat is therefore
+//    skipped from apiLimiter (see skip below) and covered by
+//    these two dedicated buckets instead.
+// ============================================================
+
+// Writes — sending a message. Generous enough for a real
+// conversation (4 messages/min), tight enough to stop spam floods.
+const chatWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+
+  standardHeaders: true,
+  legacyHeaders: false,
+
+  message: 'Too many chat messages. Please wait a moment.',
+  handler: buildHandler('chat-write'),
+
+  keyGenerator: (req) => clientIp(req),
+});
+
+// Reads — polling. This is a DDoS ceiling, not a throttle. A
+// normal open panel at 3s polling generates 300/15min; two tabs
+// is 600. The limit only fires on real abuse (scripted floods).
+const chatPollLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 2000,
+
+  standardHeaders: true,
+  legacyHeaders: false,
+
+  message: 'Too many chat requests. Please slow down.',
+  handler: buildHandler('chat-poll'),
+
+  keyGenerator: (req) => clientIp(req),
+});
+
 // ============================================================
 // 6. EXPORT
 // ============================================================
@@ -155,4 +197,6 @@ module.exports = {
   resetLimiter,
   registerLimiter,
   submitLimiter,
+  chatWriteLimiter,
+  chatPollLimiter,
 };

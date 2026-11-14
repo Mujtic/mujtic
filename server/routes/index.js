@@ -23,6 +23,7 @@ const messageRoutes        = require('./messages');
 const couponRoutes         = require('./coupons');
 const staffRoutes          = require('./staff');
 const cronRoutes           = require('./cron');
+const chatRoutes           = require('./chat');
 
 const router = express.Router();
 
@@ -58,6 +59,7 @@ router.use(ticketRoutes);
 router.use(waitlistRoutes);
 router.use(serviceRequestRoutes);
 router.use(newsletterRoutes);
+router.use(chatRoutes);
 // ── Authenticated user scope ──
 // Data scoped to req.user.id — payouts (organizer), settings (self), refunds
 // (self + organizer), analytics (organizer), coupons (organizer), service
