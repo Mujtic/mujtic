@@ -56,7 +56,7 @@ const helmetConfig = {
       connectSrc: [
         "'self'",
         "http://localhost:63342",
-        "https://glycr.netlify.app/",
+        "https://mujtic.vercel.app/",
       ],
 
       // Hardening directives — cheap defense-in-depth even though inert on JSON

@@ -1,9 +1,7 @@
 // config/middleware.js
 const express = require('express');
-const path = require('path');
 const cors = require('cors');
 const helmet = require('./helmet');
-const config = require('./index');
 const { logger } = require('./logger');
 const { corsOptions } = require('./cors');
 const { requestLogger } = require('../middleware/requestLogger');
@@ -43,12 +41,15 @@ const setupMiddleware = (app) => {
   app.use(express.json({ limit: '100kb' }));
   app.use(express.urlencoded({ extended: false, limit: '100kb' }));
 
-  // Uploads: filenames are unique (timestamp + random hex), so immutable
-  // caching is safe and eliminates repeat downloads of the same poster.
-  app.use('/uploads', express.static(
-    path.resolve(__dirname, '..', config.uploadDir),
-    { maxAge: '30d', immutable: true, etag: true, lastModified: true }
-  ));
+  // ── /uploads static mount removed ──
+  // Event images now live on Cloudflare R2 (services/storageService.js) and
+  // are served via the bucket's public CDN URL, not from this server.
+  // Anything that still tries to load /uploads/* will 404 — which is
+  // correct, because nothing writes to that directory anymore.
+  //
+  // Cleanup: the old uploads/ folder can be deleted from the repo. Anything
+  // that was in it is already gone (Render's filesystem is ephemeral, so it
+  // was wiped on every redeploy anyway).
 
   // Rate limits must run after body parsers (authLimiter/resetLimiter read
   // req.body in their keyGenerators). They run before routes so requests

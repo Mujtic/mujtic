@@ -63,7 +63,6 @@ class EventService {
 
     const clean = pick(eventData, ORGANIZER_WRITABLE_FIELDS);
 
-
     if (clean.feePaidBy !== undefined) {
       if (clean.feePaidBy === null || clean.feePaidBy === '') {
         clean.feePaidBy = null;
@@ -100,8 +99,6 @@ class EventService {
         }
       }
     }
-
-
 
     const event = new Event({
       ...clean,
@@ -310,11 +307,11 @@ class EventService {
     // entities don't appear literally in the SMS. Paid tickets are told about
     // the automatic refund; free tickets have nothing to refund.
     const smsPaid = sanitizeHtml(
-      `Glycr: The event "${event.title}" has been cancelled by ${organizerName}. ` +
+      `Mujtic: The event "${event.title}" has been cancelled by ${organizerName}. ` +
       `Your ticket is no longer valid. A full refund is being processed automatically (5-7 business days).`
     );
     const smsFree = sanitizeHtml(
-      `Glycr: The event "${event.title}" has been cancelled by ${organizerName}. ` +
+      `Mujtic: The event "${event.title}" has been cancelled by ${organizerName}. ` +
       `Your ticket is no longer valid.`
     );
 
@@ -341,7 +338,7 @@ class EventService {
           <p><strong>Where:</strong> ${venueEsc}${locationEsc ? `, ${locationEsc}` : ''}</p>
           <p>Your ticket (ID: <code>${escapeHtml(ticket.id)}</code>) is no longer valid for entry.</p>
           ${refundLine}
-          <p>– Glycr Team</p>
+          <p>– Mujtic Team</p>
         `;
         sendEmail(ticket.userEmail, subjectSafe, html)
           .catch((err) => logger.error('Cancellation email failed', {
