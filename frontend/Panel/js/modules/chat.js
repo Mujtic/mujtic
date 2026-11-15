@@ -9,11 +9,7 @@ let chatDateTo        = '';
 let chatSelectedIds   = new Set();
 
 // visitors type arbitrary content — escape everything we render
-function _chatEsc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
-    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-  }[c]));
-}
+function _chatEsc(s) { return SecurityUtils.escapeHtml(s); }
 
 function _fmtChatTime(d) {
   const t = new Date(d); if (isNaN(t)) return '';

@@ -1169,6 +1169,37 @@ input[type="file"] { display: none; }
 .footer-links-group ul { list-style: none; display: flex; flex-direction: column; gap: 0.6rem; }
 .footer-links-group ul li a { font-size: 0.83rem; color: var(--dim); text-decoration: none; transition: color 0.2s; cursor: pointer; }
 .footer-links-group ul li a:hover { color: var(--teal); }
+/* ============================================================
+   FOOTER CONTACT
+============================================================ */
+.footer-contact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-bottom: 1.5rem;
+}
+
+.footer-contact-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.83rem;
+  color: var(--dim);
+  text-decoration: none;
+  transition: color 0.2s var(--ease);
+}
+
+.footer-contact-item:hover {
+  color: var(--teal);
+}
+
+.footer-contact-item i {
+  width: 18px;
+  text-align: center;
+  color: var(--teal);
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
 .footer-newsletter p { font-size: 0.82rem; color: var(--muted); margin-bottom: 1rem; line-height: 1.6; }
 .newsletter-form { margin-bottom: 1.5rem; }
 .newsletter-input-wrap { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; transition: border-color 0.2s; }

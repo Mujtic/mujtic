@@ -4,6 +4,7 @@ const ChatMessage  = require('../models/ChatMessage');
 const { AppError } = require('../utils/appError');
 const { logger }   = require('../config/logger');
 const { isObjectIdString } = require('../utils/validators');
+const Security = require('../utils/security');
 
 const MAX_TEXT_LEN = 2000;
 const SNIPPET_LEN  = 120;
@@ -14,12 +15,13 @@ class ChatService {
   // ── shared helpers ─────────────────────────────────────────────
 
   _requireText(text, field = 'text') {
-    const t = String(text || '').trim();
-    if (!t) throw new AppError(`${field} is required`, 400);
-    if (t.length > MAX_TEXT_LEN) {
-      throw new AppError(`${field} is too long (max ${MAX_TEXT_LEN})`, 400);
-    }
-    return t;
+    const raw = String(text || '').trim();
+    if (!raw) throw new AppError(`${field} is required`, 400);
+    if (raw.length > MAX_TEXT_LEN) throw new AppError(`${field} is too long (max ${MAX_TEXT_LEN})`, 400);
+
+    const clean = Security.sanitizeChatText(raw, MAX_TEXT_LEN);
+    if (!clean) throw new AppError(`${field} cannot be empty after sanitization`, 400);
+    return clean;
   }
 
   async _findConvOrThrow(convId, filter = {}) {
@@ -43,19 +45,27 @@ class ChatService {
     await conv.save();
   }
 
-  async _notifySupportOnce(conv, text) {
+  // Notify the support team when a conversation goes from 0 → 1 unread
+  // messages. The email intentionally contains NO user content — just a
+  // nudge and a link. This is the safest possible shape: there is nothing
+  // in the email body that could be HTML-injected, so no escaping required
+  // and no way for a malicious visitor to control what the admin inbox sees.
+  //
+  // Subsequent messages while `unreadForOwner >= 1` do not re-send — the
+  // admin already has one pending notification for this thread.
+  async _notifySupportOnce(conv) {
     if (conv.unreadForOwner !== 1) return;
     const to = process.env.SUPPORT_NOTIFY_EMAIL;
     if (!to) return;
     try {
       const { sendEmail } = require('./notificationService');
-      const who = conv.visitorName || conv.visitorEmail || 'A visitor';
+      const adminUrl = process.env.ADMIN_URL || 'https://glycr.onrender.com/admin';
       await sendEmail(
         to,
         'New Mujtic support message',
-        `<p><strong>${who}</strong> sent a message:</p>
-         <p style="padding:0.75rem;background:#f4f7fa;border-radius:6px;">${String(text).slice(0, 500)}</p>
-         <p>Open the Support Inbox in the dashboard to reply.</p>`
+        `<p>You have a new message in the Mujtic Support Inbox.</p>
+         <p><a href="${adminUrl}">Open the Support Inbox</a></p>
+         <p style="color:#94a3b8;font-size:0.85em;">Conversation: ${String(conv._id)}</p>`
       );
     } catch (err) {
       logger.error('support notify email failed', { err: err.message, convId: String(conv._id) });
@@ -73,14 +83,14 @@ class ChatService {
     if (!conv) {
       conv = await Conversation.create({
         visitorId,
-        visitorName:  name  || '',
-        visitorEmail: email || '',
+        visitorName:  name  ? Security.sanitizeInput(String(name),  { maxLength: 100 }) : '',
+        visitorEmail: email ? Security.sanitizeInput(String(email), { maxLength: 200 }) : '',
         userId:       userId || null,
       });
     } else {
       let dirty = false;
-      if (name  && name  !== conv.visitorName)  { conv.visitorName  = name;  dirty = true; }
-      if (email && email !== conv.visitorEmail) { conv.visitorEmail = email; dirty = true; }
+      if (name  && name  !== conv.visitorName)  { conv.visitorName  = Security.sanitizeInput(String(name),  { maxLength: 100 });  dirty = true; }
+      if (email && email !== conv.visitorEmail) { conv.visitorEmail = Security.sanitizeInput(String(email), { maxLength: 200 }); dirty = true; }
       if (userId && String(userId) !== String(conv.userId)) { conv.userId = userId; dirty = true; }
       if (dirty) await conv.save();
     }
@@ -104,7 +114,8 @@ class ChatService {
     conv.unreadForOwner += 1;
     await this._touch(conv, body, 'visitor');
 
-    this._notifySupportOnce(conv, body);
+    // Fire-and-forget; already catches internally.
+    this._notifySupportOnce(conv);
 
     return msg;
   }
@@ -116,6 +127,7 @@ class ChatService {
     if (since) q.createdAt = { $gt: new Date(since) };
     const messages = await ChatMessage.find(q).sort({ createdAt: 1 });
 
+    // Any owner message in the batch ⇒ visitor has now seen them.
     if (messages.some(m => m.from === 'owner') && conv.unreadForVisitor > 0) {
       conv.unreadForVisitor = 0;
       await conv.save();
@@ -173,7 +185,7 @@ class ChatService {
     const msg = await ChatMessage.create({
       conversationId: conv._id,
       from: 'owner',
-      senderName: ownerName || 'Support',
+      senderName: Security.sanitizeInput(String(ownerName || 'Support'), { maxLength: 100 }),
       text: body,
     });
 
@@ -219,9 +231,6 @@ class ChatService {
     return snapshot;
   }
 
-  // Bulk delete — admin-only at the route layer. Skips IDs that don't exist
-  // or aren't valid ObjectIds rather than failing the whole batch, so a stale
-  // selection from a slow-polling client still goes through.
   async bulkDeleteConversations({ ids }) {
     if (!Array.isArray(ids) || !ids.length) {
       throw new AppError('ids must be a non-empty array', 400);
@@ -239,8 +248,6 @@ class ChatService {
 
     const convObjectIds = convs.map(c => c._id);
 
-    // Count messages per conversation in one aggregation — cheaper than
-    // one countDocuments per id.
     const counts = await ChatMessage.aggregate([
       { $match: { conversationId: { $in: convObjectIds } } },
       { $group: { _id: '$conversationId', count: { $sum: 1 } } },
@@ -255,9 +262,6 @@ class ChatService {
       messageCount: countMap.get(String(c._id)) || 0,
     }));
 
-    // Messages first, then conversations — same crash-safety rationale as
-    // the single-delete path. If the second step fails, empty conversations
-    // remain and the admin can retry; orphaned messages would be worse.
     await ChatMessage.deleteMany({ conversationId: { $in: convObjectIds } });
     await Conversation.deleteMany({ _id: { $in: convObjectIds } });
 

@@ -18,9 +18,7 @@
     if (!id) { id = uuid(); localStorage.setItem(STORE, id); }
     return id;
   }
-  function esc(s) {
-    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  }
+  function esc(s) { return SecurityUtils.escapeHtml(s); }
   function fmtTime(d) {
     const t = new Date(d);
     return isNaN(t) ? '' : t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
