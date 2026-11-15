@@ -37,7 +37,7 @@ exports.getUser = async (req, res, next) => {
 
 exports.updateUser = async (req, res, next) => {
   try {
-    const user = await userService.updateProfile(req.params.id, req.body);
+    const user = await adminService.updateUser(req.params.id, req.body, req.user.role);
     const submittedFields = Object.keys(req.body || {}).filter((k) => k !== 'password');
     logService.audit(req.user.email, 'update_user', user?.email || req.params.id, {
       type: 'user', adminId: req.user.id, targetRole: user?.role, submittedFields, ...ctx(req),

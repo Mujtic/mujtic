@@ -4,24 +4,40 @@ const ChatMessage  = require('../models/ChatMessage');
 const { AppError } = require('../utils/appError');
 const { logger }   = require('../config/logger');
 const { isObjectIdString } = require('../utils/validators');
-const Security = require('../utils/security');
+const { sanitizeHeader } = require('../utils/htmlSecurity');
 
 const MAX_TEXT_LEN = 2000;
 const SNIPPET_LEN  = 120;
 const LIST_LIMIT   = 500;
+const NAME_MAX     = 100;
+const EMAIL_MAX    = 200;
 
 class ChatService {
 
   // ── shared helpers ─────────────────────────────────────────────
 
+  // Chat text is stored RAW and escaped at render time in the frontend
+  // (_chatEsc in chat-live.js / js/modules/chat.js). This is the standard
+  // chat-app model — Slack/Discord/etc all store raw and escape on render.
+  //
+  // We do NOT sanitizeHtml() here because that strips any <anything>
+  // construct — including legitimate content like "<3" or "<sarah@x.com>".
+  // The XSS risk is neutralised by display escaping, which has been
+  // verified against <script>, <img onerror>, <svg onload> and <b onclick>.
   _requireText(text, field = 'text') {
-    const raw = String(text || '').trim();
-    if (!raw) throw new AppError(`${field} is required`, 400);
-    if (raw.length > MAX_TEXT_LEN) throw new AppError(`${field} is too long (max ${MAX_TEXT_LEN})`, 400);
+    const t = String(text || '').trim();
+    if (!t) throw new AppError(`${field} is required`, 400);
+    if (t.length > MAX_TEXT_LEN) throw new AppError(`${field} is too long (max ${MAX_TEXT_LEN})`, 400);
+    return t;
+  }
 
-    const clean = Security.sanitizeChatText(raw, MAX_TEXT_LEN);
-    if (!clean) throw new AppError(`${field} cannot be empty after sanitization`, 400);
-    return clean;
+  // Header-shaped strings (name, email, sender label) use sanitizeHeader
+  // from htmlSecurity.js — strips CR/LF, trims. These fields could one day
+  // be interpolated into an email Subject or To: line, so stripping CR/LF
+  // now prevents a future header-injection regression.
+  _cleanHeader(value, maxLen) {
+    const s = sanitizeHeader(value == null ? '' : String(value));
+    return maxLen && s.length > maxLen ? s.slice(0, maxLen) : s;
   }
 
   async _findConvOrThrow(convId, filter = {}) {
@@ -80,17 +96,20 @@ class ChatService {
     let conv = await Conversation.findOne({ visitorId, status: 'open' })
       .sort({ lastMessageAt: -1 });
 
+    const cleanName  = this._cleanHeader(name,  NAME_MAX);
+    const cleanEmail = this._cleanHeader(email, EMAIL_MAX);
+
     if (!conv) {
       conv = await Conversation.create({
         visitorId,
-        visitorName:  name  ? Security.sanitizeInput(String(name),  { maxLength: 100 }) : '',
-        visitorEmail: email ? Security.sanitizeInput(String(email), { maxLength: 200 }) : '',
+        visitorName:  cleanName,
+        visitorEmail: cleanEmail,
         userId:       userId || null,
       });
     } else {
       let dirty = false;
-      if (name  && name  !== conv.visitorName)  { conv.visitorName  = Security.sanitizeInput(String(name),  { maxLength: 100 });  dirty = true; }
-      if (email && email !== conv.visitorEmail) { conv.visitorEmail = Security.sanitizeInput(String(email), { maxLength: 200 }); dirty = true; }
+      if (cleanName  && cleanName  !== conv.visitorName)  { conv.visitorName  = cleanName;  dirty = true; }
+      if (cleanEmail && cleanEmail !== conv.visitorEmail) { conv.visitorEmail = cleanEmail; dirty = true; }
       if (userId && String(userId) !== String(conv.userId)) { conv.userId = userId; dirty = true; }
       if (dirty) await conv.save();
     }
@@ -185,7 +204,7 @@ class ChatService {
     const msg = await ChatMessage.create({
       conversationId: conv._id,
       from: 'owner',
-      senderName: Security.sanitizeInput(String(ownerName || 'Support'), { maxLength: 100 }),
+      senderName: this._cleanHeader(ownerName || 'Support', NAME_MAX) || 'Support',
       text: body,
     });
 

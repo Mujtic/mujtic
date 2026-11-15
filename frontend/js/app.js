@@ -206,15 +206,27 @@ class MujticApp {
     icon.className = `confirm-icon ${tone}`;
     icon.innerHTML = `<i class="fas ${tone === 'danger' ? 'fa-triangle-exclamation' : 'fa-circle-question'}"></i>`;
     this._confirmHasInput = !!input;
-    $('confirm-input-wrap').style.display = input ? 'block' : 'none';
+    const isPw = !!(input && input.type === 'password');
+    const wrap = $('confirm-input-wrap');
+    const ta   = $('confirm-input');
+    const pw   = $('confirm-input-pw');
+    wrap.style.display = input ? 'block' : 'none';
+    ta.style.display   = (input && !isPw) ? '' : 'none';
+    pw.style.display   = isPw ? '' : 'none';
     if (input) {
       $('confirm-input-label').textContent = input.label || '';
-      $('confirm-input').placeholder = input.placeholder || '';
-      $('confirm-input').value = '';
+      if (isPw) {
+        pw.placeholder = input.placeholder || '';
+        pw.value = '';
+      } else {
+        ta.placeholder = input.placeholder || '';
+        ta.value = '';
+      }
     }
     this._confirmPrevFocus = document.activeElement;
     $('confirm-dialog').classList.add('show');
-    (input ? $('confirm-input') : $('confirm-cancel-btn')).focus();
+    const focusEl = input ? (isPw ? pw : ta) : $('confirm-cancel-btn');
+    focusEl.focus();
     return new Promise(resolve => { this._confirmResolve = resolve; });
   }
 
@@ -222,7 +234,14 @@ class MujticApp {
     const resolve = this._confirmResolve;
     if (!resolve) return;
     this._confirmResolve = null;
-    const text = (document.getElementById('confirm-input')?.value || '').trim();
+    const ta = document.getElementById('confirm-input');
+    const pw = document.getElementById('confirm-input-pw');
+    const text = (pw.style.display !== 'none'
+        ? (pw?.value || '')
+        : (ta?.value || '')
+    ).trim();
+    if (ta) ta.value = '';
+    if (pw) pw.value = '';
     document.getElementById('confirm-dialog').classList.remove('show');
     try { this._confirmPrevFocus?.focus(); } catch {}
     resolve(this._confirmHasInput ? (ok ? text : null) : ok);
@@ -1585,20 +1604,59 @@ class MujticApp {
     const name  = document.getElementById('profile-name-input').value.trim();
     const email = document.getElementById('profile-email-input').value.trim();
     const phone = document.getElementById('profile-phone-input').value.trim();
+
     this.clearFieldErrors('pname-err', 'pemail-err', 'pphone-err');
+
     let valid = true;
-    if (!name)                         { this.setFieldError('profile-name-input',  'pname-err',  'Name is required'); valid = false; }
-    if (!email)                        { this.setFieldError('profile-email-input', 'pemail-err', 'Email is required'); valid = false; }
+    if (!name)                           { this.setFieldError('profile-name-input',  'pname-err',  'Name is required'); valid = false; }
+    if (!email)                          { this.setFieldError('profile-email-input', 'pemail-err', 'Email is required'); valid = false; }
     else if (!this.validateEmail(email)) { this.setFieldError('profile-email-input', 'pemail-err', 'Invalid email format'); valid = false; }
-    if (!phone)                        { this.setFieldError('profile-phone-input', 'pphone-err', 'Phone is required'); valid = false; }
+    if (!phone)                          { this.setFieldError('profile-phone-input', 'pphone-err', 'Phone is required'); valid = false; }
     else if (!this.validatePhone(phone)) { this.setFieldError('profile-phone-input', 'pphone-err', 'Use format: +233xxxxxxxxx'); valid = false; }
     if (!valid) return;
+
+    // Password confirmation — gates the actual update.
+    const password = await this.confirmDialog({
+      title: 'Confirm your password',
+      message: 'Enter your current password to save these changes.',
+      confirmText: 'Save changes',
+      cancelText: 'Cancel',
+      tone: 'primary',
+      input: {
+        label: 'Current password',
+        placeholder: 'Enter your current password',
+        type: 'password',
+      },
+    });
+
+    if (password === null) return;                          // cancelled
+    const pw = String(password).trim();
+    if (!pw) {
+      this.showWarning('Password is required to save changes');
+      return;
+    }
+
     try {
-      const u = await this.fetchApi('/auth/profile', { method: 'PUT', body: JSON.stringify({ name, email, phone }) });
-      this.currentUser = u; localStorage.setItem('user', JSON.stringify(u)); this.updateNav();
+      const u = await this.fetchApi('/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify({ name, email, phone, password: pw }),
+        successMsg: false,     // suppress the auto-toast; we handle it below
+      });
+      this.currentUser = u;
+      localStorage.setItem('user', JSON.stringify(u));
+      this.updateNav();
       await this.loadAllData();
       this.closeAllModals();
-    } catch (err) { this.showError(err.message); }
+      this.showSuccess('Profile updated');
+    } catch (err) {
+      // If the password is wrong, the backend returns 401. Keep the edit modal
+      // open so the user can retry without retyping their name/email/phone.
+      if (/incorrect password|wrong password/i.test(err.message || '')) {
+        this.showError('Incorrect password. Please try again.');
+      } else {
+        this.showError(err.message || 'Could not update profile.');
+      }
+    }
   }
 
   // ─── Events List ──────────────────────────────────────────

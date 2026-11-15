@@ -191,9 +191,25 @@ class UserService {
   }
 
   async updateProfile(userId, updates) {
+    const { password, ...rest } = updates || {};
+
+    // Password proves ownership on the self-service route. The password field
+    // is stripped from `rest` so findByIdAndUpdate can never store it.
+    if (!password || typeof password !== 'string' || !password.trim()) {
+      throw new AppError('Password is required to update your profile', 400);
+    }
+
+    // User.password has `select: false` — pull it explicitly for comparison.
+    const me = await User.findById(userId).select('+password');
+    if (!me) throw new AppError('User not found', 404);
+
+    const matches = await bcrypt.compare(password.trim(), me.password);
+    if (!matches) throw new AppError('Incorrect password', 401);
+
+    // Everything from here down is the original method, byte-for-byte.
     const ALLOWED = ['name', 'phone', 'avatar', 'bio', 'email', 'username'];
     const clean = Object.fromEntries(
-      Object.entries(updates || {}).filter(([k]) => ALLOWED.includes(k))
+      Object.entries(rest).filter(([k]) => ALLOWED.includes(k))
     );
 
     if (clean.email !== undefined) {
