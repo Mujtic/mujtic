@@ -24,6 +24,7 @@ const couponRoutes         = require('./coupons');
 const staffRoutes          = require('./staff');
 const cronRoutes           = require('./cron');
 const chatRoutes           = require('./chat');
+const paymentRoutes        = require('./payments');
 
 const router = express.Router();
 
@@ -59,7 +60,7 @@ router.use(ticketRoutes);
 router.use(waitlistRoutes);
 router.use(serviceRequestRoutes);
 router.use(newsletterRoutes);
-
+router.use(paymentRoutes);
 // Chat must be mounted with an explicit '/chat' prefix. chat.js defines
 // bare paths ('/start', '/:id', '/conversations'). Without the prefix,
 // router.get('/:id') would become GET /api/:id and intercept every

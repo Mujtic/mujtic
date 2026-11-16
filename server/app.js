@@ -5,6 +5,16 @@ const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
 
+// ── Paystack webhook: raw body BEFORE any JSON parser ──
+  // Paystack signs the raw request body with PAYSTACK_SECRET_KEY. If
+    // express.json() consumes the stream first, the signature won't match.
+      // Mounted here — before setupMiddleware — so it bypasses the global parser.
+        +app.post(
+           '/api/payments/paystack/webhook',
+            express.raw({ type: 'application/json', limit: '500kb' }),
+           require('./controllers/paymentController').webhook
+          );
+
 // ── 1. Pre-route middleware ──
 setupMiddleware(app);
 

@@ -585,6 +585,16 @@ class MujticApp {
     if (termsDate) termsDate.textContent = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
     if (privDate)  privDate.textContent  = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
     await this.checkAuth();
+    // ── Paystack return detection ──
+    // When Paystack redirects back, the URL is:
+    //   https://mujtic.netlify.app/?payment_ref=MJT-...
+    // Verify before any user interaction, then strip the param so refresh
+    // doesn't trigger a second verification.
+    const paymentRef = new URLSearchParams(location.search).get('payment_ref');
+    if (paymentRef) {
+      window.history.replaceState({}, '', location.pathname + location.hash);
+      this._verifyPaystackReturn(paymentRef);   // no await — let it run async
+    }
     this.bindEvents();
     this.initPasswordToggles();
     this.bindNavLinks();
@@ -855,6 +865,57 @@ class MujticApp {
       await this.loadAllData();
       this.showSection(this.currentUser.isOrganizer ? 'dashboard' : 'profile');
     } catch { this.logout(true); }
+  }
+
+  async _verifyPaystackReturn(reference) {
+    this.showToast('Verifying payment…', 'info', 8000);
+    try {
+      const r = await this.fetchApi(`/payments/verify/${encodeURIComponent(reference)}`, { successMsg: false });
+
+      if (r.status !== 'success' || !r.tickets?.length) {
+        this.showError('Payment was not completed. If you were charged, contact support with reference ' + reference);
+        return;
+      }
+
+      this.showSuccess('Payment successful! Your tickets are ready.');
+      await this.loadAllData();
+      this.showSection('profile');
+
+      // Show the QR modal for the first ticket — signed-in users only.
+      // Guests can't look the ticket up locally (loadUserTickets is skipped
+      // for guests), so they rely on the confirmation email.
+      if (this.currentUser) {
+        const firstId = r.tickets[0].id;
+        const fullTicket = this.userTickets.find(t => t.id === firstId || t._id === firstId);
+        if (fullTicket) {
+          const evId = this._idOf(fullTicket.eventId);
+          const ev = this._findEvent(evId) || await this.fetchApi(`/events/${evId}`).catch(() => null);
+          if (ev) this._showTicketModal(fullTicket, ev);
+        }
+      } else {
+        this.showToast('Your tickets have been emailed to you.', 'info', 6000);
+      }
+
+      // Attach reminder if user opted in before redirect
+      const pend = sessionStorage.getItem('mujtic_pending_reminder');
+      if (pend && this.currentUser) {
+        try {
+          const d = JSON.parse(pend);
+          const rem = {
+            id: 'REM-' + Math.random().toString(36).slice(2, 10).toUpperCase(),
+            userId: this.currentUser.id,
+            eventId: d.eventId,
+            eventTitle: d.eventTitle,
+            eventDate: d.eventDate || new Date().toISOString(),
+          };
+          this.reminders.push(rem);
+          this.saveToStorage('mujtic_reminders', this.reminders);
+        } catch {}
+        sessionStorage.removeItem('mujtic_pending_reminder');
+      }
+    } catch (err) {
+      this.showError(err.message || 'Could not verify payment.');
+    }
   }
 
   // ─── Load fee settings (both tracks) ─────────────────────────
@@ -1165,6 +1226,8 @@ class MujticApp {
     this.closeAllModals();
     this.showSuccess('Cookie preferences saved');
   }
+
+
 
   // ─── DASHBOARD ────────────────────────────────────────────
   async renderDashboardFromData() {
@@ -2185,60 +2248,83 @@ class MujticApp {
     const remind = document.getElementById('set-reminder').checked;
     const companyName    = document.getElementById('company-name')?.value.trim() || '';
     const billingAddress = document.getElementById('billing-address')?.value.trim() || '';
+
     this.clearFieldErrors('payer-email-err', 'payer-phone-err');
     let valid = true;
-    if (!email)                        { this.setFieldError('payer-email', 'payer-email-err', 'Email is required'); valid = false; }
+    if (!email)                          { this.setFieldError('payer-email', 'payer-email-err', 'Email is required'); valid = false; }
     else if (!this.validateEmail(email)) { this.setFieldError('payer-email', 'payer-email-err', 'Invalid email format'); valid = false; }
-    if (!phone)                        { this.setFieldError('payer-phone', 'payer-phone-err', 'Phone is required'); valid = false; }
+    if (!phone)                          { this.setFieldError('payer-phone', 'payer-phone-err', 'Phone is required'); valid = false; }
     else if (!this.validatePhone(phone)) { this.setFieldError('payer-phone', 'payer-phone-err', 'Use format: +233xxxxxxxxx'); valid = false; }
     if (!valid) return;
+
     const statusEl = document.getElementById('payment-status');
-    statusEl.style.display = 'block'; statusEl.className = 'status-msg loading';
-    statusEl.textContent = this.selectedTicket.price === 0 ? 'Claiming tickets…' : `Processing payment…`;
+    statusEl.style.display = 'block';
+
+    // ── Free ticket: existing direct flow (no Paystack round-trip) ──
+    if (this.selectedTicket.price === 0) {
+      statusEl.className = 'status-msg loading';
+      statusEl.textContent = 'Claiming tickets…';
+      try {
+        await this.delay(800);
+        const tickets = await this.fetchApi('/tickets/purchase', {
+          method: 'POST',
+          successMsg: qty > 1 ? `${qty} tickets claimed` : 'Ticket claimed',
+          body: JSON.stringify({
+            eventId: this.selectedTicket.eventId, ticketType: this.selectedTicket.type, quantity: qty,
+            paymentDetails: { email, phone },
+            buyerEmail: email, buyerPhone: phone, buyerName: email.split('@')[0],
+            isGuest: !this.currentUser,
+            promoCode: (this.appliedPromo && this.appliedPromo.code) || null,
+            groupBooking: qty >= 5 ? { companyName, billingAddress } : null,
+          }),
+        });
+        const norm = (Array.isArray(tickets) ? tickets : [tickets]).map(t => ({
+          ...t,
+          id: t.id || t._id || t.ticketId,
+          ticketType: t.ticketType || t.type || this.selectedTicket.type,
+        }));
+        this.lastPurchasedTickets = norm;
+        const ev = await this.fetchApi(`/events/${this.selectedTicket.eventId}`);
+        this.lastPurchasedEvent = ev;
+        await this.loadAllData();
+        this._showTicketModal(norm[0], ev);
+      } catch (err) {
+        statusEl.className = 'status-msg error';
+        statusEl.textContent = err.message;
+      }
+      return;
+    }
+
+    // ── Paid ticket: Paystack hosted checkout ──
+    statusEl.className = 'status-msg loading';
+    statusEl.textContent = 'Redirecting to Paystack…';
     try {
-      await this.delay(1800);
-      const isFree = this.selectedTicket.price === 0;
-      const tickets = await this.fetchApi('/tickets/purchase', {
+      const res = await this.fetchApi('/payments/initialize', {
         method: 'POST',
-        successMsg: isFree
-          ? (qty > 1 ? `${qty} tickets claimed` : 'Ticket claimed')
-          : (qty > 1 ? `${qty} tickets purchased` : 'Ticket purchased'),
+        successMsg: false,
         body: JSON.stringify({
-          eventId: this.selectedTicket.eventId, ticketType: this.selectedTicket.type, quantity: qty,
-          paymentDetails: { email, phone },
+          eventId: this.selectedTicket.eventId,
+          ticketType: this.selectedTicket.type,
+          quantity: qty,
           buyerEmail: email,
           buyerPhone: phone,
           buyerName: email.split('@')[0],
-          isGuest: !this.currentUser,
           promoCode: (this.appliedPromo && this.appliedPromo.code) || null,
           groupBooking: qty >= 5 ? { companyName, billingAddress } : null,
         }),
       });
-      const normTickets = (Array.isArray(tickets) ? tickets : [tickets]).map(t => ({
-        ...t,
-        id: t.id || t._id || t.ticketId || ('TKT-' + Math.random().toString(36).slice(2, 10).toUpperCase()),
-        ticketType: t.ticketType || t.type || (this.selectedTicket && this.selectedTicket.type) || 'ticket',
-      }));
-      this.lastPurchasedTickets = normTickets;
-      statusEl.className = 'status-msg success'; statusEl.innerHTML = `<strong>✓ ${qty} ticket${qty > 1 ? 's' : ''} purchased!</strong>`;
-      const ev = await this.fetchApi(`/events/${this.selectedTicket.eventId}`);
-      this.lastPurchasedEvent = ev;
-      this.sendSMS(phone, `Your Mujtic tickets for ${ev.title} are ready!`);
-      this.sendEmail(email, `Your tickets for ${ev.title}`, `Hi! Your ${qty} ${this.selectedTicket.type.toUpperCase()} ticket(s) for ${ev.title} are confirmed.`);
-
-      if (remind && this.currentUser) {
-        const reminderId = 'REM-' + Math.random().toString(36).slice(2, 10).toUpperCase();
-        this.reminders.push({ id: reminderId, userId: this.currentUser.id, eventId: ev._id, eventTitle: ev.title, eventDate: ev.date });
-        this.saveToStorage('mujtic_reminders', this.reminders);
+      // Preserve the reminder choice — handled after the redirect returns
+      if (remind) {
+        sessionStorage.setItem('mujtic_pending_reminder', JSON.stringify({
+          eventId: this.selectedTicket.eventId,
+          eventTitle: this.lastPurchasedEvent?.title || '',
+        }));
       }
-
-      this.pushNotification({ type: 'purchase', text: `You bought ${qty} ticket${qty > 1 ? 's' : ''} for ${ev.title}!` });
-
-      await this.loadAllData();
-
-      this._showTicketModal(normTickets[0], ev);
-
-    } catch (err) { statusEl.className = 'status-msg error'; statusEl.textContent = err.message; }
+      window.location.href = res.authorizationUrl;
+    } catch (err) {
+      statusEl.className = 'status-msg error';
+      statusEl.textContent = err.message || 'Could not start payment.';
+    }
   }
 
   // Shared QR modal — used right after purchase AND from Purchase History

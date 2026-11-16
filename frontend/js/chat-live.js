@@ -145,7 +145,7 @@
     btn.className = 'lcw-btn'; btn.id = 'lcw-btn';
     btn.setAttribute('aria-expanded', 'false');
     btn.setAttribute('aria-label', 'Chat with support');
-    btn.innerHTML = '<i class="fas fa-comment-dots"></i><span class="lcw-badge" id="lcw-badge">0</span>';
+    btn.innerHTML = '<i class="fas fa-headset"></i><span class="lcw-badge" id="lcw-badge">0</span>';
     document.body.appendChild(btn);
 
     const tip = document.createElement('div');
