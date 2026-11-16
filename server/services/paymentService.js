@@ -109,8 +109,8 @@ class PaymentService {
         amount: amountPesewas,
         currency: payment.pricing.currency,
         reference,
-        callback_url: `${process.env.FRONTEND_URL || 'https://mujtic.netlify.app'}/?payment_ref=${reference}`,
-        channels: ['mobile_money', 'card', 'bank_transfer'],
+        callback_url: `${process.env.FRONTEND_URL || 'https://mujtic.vercel.app'}/?payment_ref=${reference}`,
+        //channels:['mobile_money', 'card', 'bank_transfer'],
         metadata: {
           paymentId: String(payment._id),
           eventId: String(event._id),
