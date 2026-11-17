@@ -110,6 +110,7 @@ class PaymentService {
         currency: payment.pricing.currency,
         reference,
         callback_url: `${process.env.FRONTEND_URL || 'https://mujtic.vercel.app'}/?payment_ref=${reference}`,
+        channels: ['mobile_money', 'card'],
         metadata: {
           paymentId: String(payment._id),
           eventId: String(event._id),

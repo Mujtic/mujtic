@@ -2093,6 +2093,24 @@ class MujticApp {
     } catch (err) { this.appliedPromo = null; s.style.color = 'var(--coral)'; s.textContent = err.message || 'Invalid or expired code.'; }
   }
 
+
+  _computeFinalTotal() {
+    if (!this.selectedTicket) return 0;
+    const qty = parseInt(document.getElementById('ticket-quantity')?.value) || 1;
+    const subtotal = this.selectedTicket.price * qty;
+
+    let discount = 0;
+    const groupDiscPct = this.getGroupDiscount(qty, this.selectedTicket.type);
+    if (groupDiscPct > 0) discount += subtotal * groupDiscPct / 100;
+    if (this.appliedPromo) {
+      if (this.appliedPromo.type === 'percentage') {
+        discount += subtotal * this.appliedPromo.value / 100;
+      } else {
+        discount += this.appliedPromo.value;
+      }
+    }
+    return Math.max(0, subtotal - discount);
+  }
   updatePriceSummary() {
     if (!this.selectedTicket) return;
     const qty       = parseInt((document.getElementById('ticket-quantity') || {}).value) || 1;
@@ -2218,7 +2236,7 @@ class MujticApp {
     const cardEl = document.getElementById('card-element');
     const payBtn = document.getElementById('pay-btn');
     payEl.style.display = 'block';
-    this.clearFieldErrors('payer-email-err', 'payer-phone-err');
+    this.clearFieldErrors('payer-name-err', 'payer-email-err', 'payer-phone-err');
     document.querySelectorAll('.pmeth-btn').forEach(btn => btn.classList.remove('active'));
     const firstBtn = document.querySelector('.pmeth-btn');
     if (firstBtn) { firstBtn.classList.add('active'); this.selectedPaymentMethod = firstBtn.dataset.method; }
@@ -2231,12 +2249,22 @@ class MujticApp {
       if (cardEl) cardEl.style.display = this.selectedPaymentMethod === 'stripe' ? 'block' : 'none';
       payBtn.textContent = 'Complete Purchase';
     }
+    const nameField = document.getElementById('payer-name-field');
+    const nameInput = document.getElementById('payer-name');
+    if (this.currentUser) {
+      // Logged in: use the account name, don't ask for it
+      if (nameField) nameField.style.display = 'none';
+    } else {
+      if (nameField) nameField.style.display = '';
+    }
+
     if (this.currentUser) {
       const payerEmail = document.getElementById('payer-email');
       const payerPhone = document.getElementById('payer-phone');
       if (payerEmail && !payerEmail.value) payerEmail.value = this.currentUser.email || '';
       if (payerPhone && !payerPhone.value) payerPhone.value = this.currentUser.phone || '';
     }
+
     this.updatePriceSummary();
     this.openModal('purchase-modal');
   }
@@ -2244,13 +2272,21 @@ class MujticApp {
   async processPayment() {
     const email  = document.getElementById('payer-email').value.trim();
     const phone  = document.getElementById('payer-phone').value.trim();
+// Logged in → the account's name; guest → what they typed
+    const buyerName = this.currentUser
+      ? (this.currentUser.name || '').trim() || email.split('@')[0]
+      : (document.getElementById('payer-name')?.value || '').trim();
     const qty    = parseInt(document.getElementById('ticket-quantity').value) || 1;
     const remind = document.getElementById('set-reminder').checked;
     const companyName    = document.getElementById('company-name')?.value.trim() || '';
     const billingAddress = document.getElementById('billing-address')?.value.trim() || '';
 
-    this.clearFieldErrors('payer-email-err', 'payer-phone-err');
+    this.clearFieldErrors('payer-name-err', 'payer-email-err', 'payer-phone-err');
     let valid = true;
+    if (!this.currentUser) {
+      if (!buyerName)                { this.setFieldError('payer-name', 'payer-name-err', 'Name is required'); valid = false; }
+      else if (buyerName.length < 2) { this.setFieldError('payer-name', 'payer-name-err', 'Enter your full name'); valid = false; }
+    }
     if (!email)                          { this.setFieldError('payer-email', 'payer-email-err', 'Email is required'); valid = false; }
     else if (!this.validateEmail(email)) { this.setFieldError('payer-email', 'payer-email-err', 'Invalid email format'); valid = false; }
     if (!phone)                          { this.setFieldError('payer-phone', 'payer-phone-err', 'Phone is required'); valid = false; }
@@ -2260,8 +2296,12 @@ class MujticApp {
     const statusEl = document.getElementById('payment-status');
     statusEl.style.display = 'block';
 
-    // ── Free ticket: existing direct flow (no Paystack round-trip) ──
-    if (this.selectedTicket.price === 0) {
+      // ── Free ticket OR 100% discount: direct flow ──
+        // The base `price` is per-unit, not the post-discount total. A ₵200
+      // VIP ticket with a 100% coupon is still `price === 200`, so this check
+      // has to use the actual total after group/promo discounts.
+       if (this._computeFinalTotal() < 1) {
+
       statusEl.className = 'status-msg loading';
       statusEl.textContent = 'Claiming tickets…';
       try {
@@ -2272,7 +2312,7 @@ class MujticApp {
           body: JSON.stringify({
             eventId: this.selectedTicket.eventId, ticketType: this.selectedTicket.type, quantity: qty,
             paymentDetails: { email, phone },
-            buyerEmail: email, buyerPhone: phone, buyerName: email.split('@')[0],
+            buyerEmail: email, buyerPhone: phone, buyerName: buyerName,
             isGuest: !this.currentUser,
             promoCode: (this.appliedPromo && this.appliedPromo.code) || null,
             groupBooking: qty >= 5 ? { companyName, billingAddress } : null,
@@ -2308,7 +2348,7 @@ class MujticApp {
           quantity: qty,
           buyerEmail: email,
           buyerPhone: phone,
-          buyerName: email.split('@')[0],
+          buyerName: buyerName,
           promoCode: (this.appliedPromo && this.appliedPromo.code) || null,
           groupBooking: qty >= 5 ? { companyName, billingAddress } : null,
         }),

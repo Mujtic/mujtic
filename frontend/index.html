@@ -817,7 +817,14 @@
         <button class="pmeth-btn active" data-method="mtn-momo"><span class="pmeth-icon">📱</span>Mobile Money</button>
         <button class="pmeth-btn" data-method="stripe"><span class="pmeth-icon">💳</span>Card</button>
       </div>
+
       <div class="form-row" style="margin-bottom:0.75rem;">
+        <div class="form-field" id="payer-name-field" style="margin-bottom:0.75rem;">
+          <label class="form-label">Full Name</label>
+          <input type="text" id="payer-name" placeholder="Kwame Mensah" class="input" autocomplete="name">
+          <span class="field-error" id="payer-name-err"></span>
+        </div>
+
         <div class="form-field">
           <label class="form-label">Email</label>
           <input type="email" id="payer-email" placeholder="your@email.com" class="input">
@@ -848,12 +855,15 @@
   <div class="modal-backdrop"></div>
   <div class="modal-box" style="max-width:400px;">
     <button class="modal-close" aria-label="Close">&times;</button>
+
     <div class="ticket-display">
-      <h3><i class="fas fa-ticket-alt"></i> Your Ticket</h3>
+      <h3><i class="fas fa-check-circle"></i> Purchase complete</h3>
       <p id="ticket-event-title" class="ticket-event-title"></p>
-      <div id="ticket-canvas" class="ticket-canvas"></div>
-      <p id="ticket-id" class="ticket-id-mono"></p>
-      <!-- Calendar Add Buttons -->
+
+      <!-- kept in the DOM (the PDF may read from it) but not shown -->
+      <div id="ticket-canvas" class="ticket-canvas" style="display:none;"></div>
+      <p id="ticket-id" class="ticket-id-mono" style="display:none;"></p>
+
       <div class="calendar-add-row" id="calendar-add-row" style="display:none;">
         <p class="form-label" style="margin-bottom:0.5rem;">Add to Calendar</p>
         <div style="display:flex; gap:0.5rem; justify-content:center; flex-wrap:wrap;">
