@@ -184,7 +184,7 @@ class PaymentService {
     // param on its own — Paystack's verify is the only source of truth.
     let verified;
     try {
-      verified = await paystack.transaction.verify(reference);
+      verified = await paystack.transaction.verify({ reference });
     } catch (err) {
       logger.error('Paystack verify failed', { err: err.message, reference });
       throw new AppError('Could not verify payment', 502);
