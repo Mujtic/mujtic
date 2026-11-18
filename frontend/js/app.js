@@ -925,7 +925,7 @@ class MujticApp {
     }
   }
 
-  async _showGuestTicketConfirmation(tickets, reference) {
+ async _showGuestTicketConfirmation(tickets, reference) {
     // Hide every other section, then show a dedicated guest panel
     document.getElementById('home-section').style.display = 'none';
     document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
@@ -2457,37 +2457,21 @@ class MujticApp {
 
   // Shared QR modal — used right after purchase AND from Purchase History
   _showTicketModal(ticket, ev) {
-    const ticketId = ticket?.id || ticket?._id || ticket?.ticketId || '';
-    if (!ticketId) {
-      this.showError('Could not read the ticket ID. Please check your email for the ticket.');
-      return;
-    }
-
     const canvas = document.getElementById('ticket-canvas');
     canvas.innerHTML = '';
     this.closeAllModals();
     this.openModal('ticket-modal');
-
     new QRCode(canvas, {
-      text:         String(ticketId),
+      text:         ticket.id,
       width:        184,
       height:       184,
       colorDark:    '#000000',
       colorLight:   '#ffffff',
       correctLevel: QRCode.CorrectLevel.H,
     });
-
-    document.getElementById('ticket-id').textContent = `Ticket ID: ${ticketId}`;
-
-    const t = document.getElementById('ticket-event-title');
-    if (t) t.textContent = ev?.title || '';
-
-    const calRow = document.getElementById('calendar-add-row');
-    if (calRow) calRow.style.display = 'block';
-
-    // Keep the resolved ticket in memory so Download PDF / Add to Calendar /
-    // anything else that reads `lastPurchasedTickets` uses the same object.
-    this.lastPurchasedTickets = [{ ...ticket, id: ticketId }];
+    document.getElementById('ticket-id').textContent = `Ticket ID: ${ticket.id}`;
+    const t = document.getElementById('ticket-event-title'); if (t) t.textContent = ev?.title || '';
+    const calRow = document.getElementById('calendar-add-row'); if (calRow) calRow.style.display = 'block';
   }
 
   async viewTicket(ticketId, eventId, type) {
