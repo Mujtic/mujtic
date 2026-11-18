@@ -877,26 +877,31 @@ class MujticApp {
         return;
       }
 
-      this.showSuccess('Payment successful! Your tickets are ready.');
+      // ── Same post-purchase steps as the free flow in processPayment ──
+      // 1. Normalise the tickets (id fallback, ticketType fallback)
+      const norm = (Array.isArray(r.tickets) ? r.tickets : [r.tickets]).map(t => ({
+        ...t,
+        id: t.id || t._id || t.ticketId,
+        ticketType: t.ticketType || t.type || '',
+      }));
+      this.lastPurchasedTickets = norm;
+
+      // 2. Fetch the event — same call the free flow makes
+      const evId = this._idOf(norm[0]?.eventId);
+      const ev = this._findEvent(evId)
+        || await this.fetchApi(`/events/${evId}`).catch(() => null)
+        || this.lastPurchasedEvent
+        || { title: '' };
+      this.lastPurchasedEvent = ev;
+
+      // 3. Refresh data
       await this.loadAllData();
 
-      if (this.currentUser) {
-        // Logged in: profile page, then open the QR modal for the first ticket
-        this.showSection('profile');
-        const firstId = r.tickets[0].id;
-        const fullTicket = this.userTickets.find(t => t.id === firstId || t._id === firstId);
-        if (fullTicket) {
-          const evId = this._idOf(fullTicket.eventId);
-          const ev = this._findEvent(evId) || await this.fetchApi(`/events/${evId}`).catch(() => null);
-          if (ev) this._showTicketModal(fullTicket, ev);
-        }
-      } else {
-        // Guest: show a dedicated confirmation screen (no login required)
-        await this._showGuestTicketConfirmation(r.tickets, reference);
-      }
+      // 4. Route: logged-in users land on profile; guests stay on home
+      this.showSection(this.currentUser ? 'profile' : 'home');
 
-
-
+      // 5. Open the ticket modal — identical to the free flow
+      this._showTicketModal(norm[0], ev);
 
       // Attach reminder if user opted in before redirect
       const pend = sessionStorage.getItem('mujtic_pending_reminder');
