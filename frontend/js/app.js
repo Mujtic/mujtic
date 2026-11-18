@@ -887,25 +887,34 @@ class MujticApp {
       if (!ev && evId) ev = await this.fetchApi(`/events/${evId}`).catch(() => null);
       if (!ev) ev = this.lastPurchasedEvent || { title: '' };
 
-      // Build the ticket object to render. Prefer the full ticket from userTickets
-      // (logged-in path) but fall back to the verify payload for guests.
-      const fullTicket = this.userTickets.find(t => t.id === firstTicket.id || t._id === firstTicket.id)
-        || firstTicket;
+      // Normalise the verify payload the same way the free-claim flow does,
+      // so every ticket handed to the modal has a real `id`. The backend
+      // returns Mongo docs (`_id`), but the QR + download code expects `id`.
+      const normalised = (Array.isArray(r.tickets) ? r.tickets : [r.tickets]).map(t => {
+        const id = t.id || t._id || t.ticketId;
+        const cached = this.userTickets.find(
+          u => (u.id && String(u.id) === String(id)) || (u._id && String(u._id) === String(id))
+        );
+        return {
+          ...(cached || {}),
+          ...t,
+          id,                                                    // ← the fix
+          ticketType: t.ticketType || t.type || cached?.ticketType || this.selectedTicket?.type,
+        };
+      });
 
-      this.lastPurchasedTickets = r.tickets;
+      this.lastPurchasedTickets = normalised;
       this.lastPurchasedEvent = ev;
 
       // Route to the right screen
       if (this.currentUser) {
         this.showSection('profile');
       } else {
-        // Guests don't have a profile — show a lightweight confirmation section
-        // (or just leave them on home) before opening the modal
         this.showSection('home');
       }
 
       // Open the QR modal for everyone — guest or logged-in
-      this._showTicketModal(fullTicket, ev);
+      this._showTicketModal(normalised[0], ev);
 
 
 
