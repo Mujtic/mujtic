@@ -2452,6 +2452,21 @@ class MujticApp {
         }),
       });
 
+      const tickets = await this.fetchApi('/tickets/purchase',{
+        method: 'POST',
+        successMsg: false,
+        body: JSON.stringify({
+          eventId: this.selectedTicket.eventId,
+          ticketType: this.selectedTicket.type,
+          quantity: qty,
+          buyerEmail: email,
+          buyerPhone: phone,
+          buyerName: buyerName,
+          promoCode: (this.appliedPromo && this.appliedPromo.code) || null,
+          groupBooking: qty >= 5 ? { companyName, billingAddress } : null,
+        })
+      });
+
       // Everything the return page needs to rebuild the ticket + PDF.
       // The page is fully reloaded by Paystack, so memory is wiped.
       try {
