@@ -879,10 +879,12 @@ class MujticApp {
 
       this.showSuccess('Payment successful! Your tickets are ready.');
       await this.loadAllData();
+      this.showSection('profile');
 
+      // Show the QR modal for the first ticket — signed-in users only.
+      // Guests can't look the ticket up locally (loadUserTickets is skipped
+      // for guests), so they rely on the confirmation email.
       if (this.currentUser) {
-        // Logged in: profile page, then open the QR modal for the first ticket
-        this.showSection('profile');
         const firstId = r.tickets[0].id;
         const fullTicket = this.userTickets.find(t => t.id === firstId || t._id === firstId);
         if (fullTicket) {
@@ -891,8 +893,7 @@ class MujticApp {
           if (ev) this._showTicketModal(fullTicket, ev);
         }
       } else {
-        // Guest: show a dedicated confirmation screen (no login required)
-        await this._showGuestTicketConfirmation(r.tickets, reference);
+        this.showToast('Your tickets have been emailed to you.', 'info', 6000);
       }
 
       // Attach reminder if user opted in before redirect
