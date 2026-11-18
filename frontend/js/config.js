@@ -5,7 +5,7 @@
 // the internal render.com hostname and isn't shown to users.
 
 window.MUJTIC_CONFIG = {
-  apiBase: 'https://glycr.onrender.com/api',
+  apiBase: 'https://mujtic.onrender.com/api',
   mapsApiKey: 'PASTE_YOUR_KEY_HERE',
 
   // coming-soon page
