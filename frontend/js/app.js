@@ -2457,21 +2457,37 @@ class MujticApp {
 
   // Shared QR modal — used right after purchase AND from Purchase History
   _showTicketModal(ticket, ev) {
+    const ticketId = ticket?.id || ticket?._id || ticket?.ticketId || '';
+    if (!ticketId) {
+      this.showError('Could not read the ticket ID. Please check your email for the ticket.');
+      return;
+    }
+
     const canvas = document.getElementById('ticket-canvas');
     canvas.innerHTML = '';
     this.closeAllModals();
     this.openModal('ticket-modal');
+
     new QRCode(canvas, {
-      text:         ticket.id,
+      text:         String(ticketId),
       width:        184,
       height:       184,
       colorDark:    '#000000',
       colorLight:   '#ffffff',
       correctLevel: QRCode.CorrectLevel.H,
     });
-    document.getElementById('ticket-id').textContent = `Ticket ID: ${ticket.id}`;
-    const t = document.getElementById('ticket-event-title'); if (t) t.textContent = ev?.title || '';
-    const calRow = document.getElementById('calendar-add-row'); if (calRow) calRow.style.display = 'block';
+
+    document.getElementById('ticket-id').textContent = `Ticket ID: ${ticketId}`;
+
+    const t = document.getElementById('ticket-event-title');
+    if (t) t.textContent = ev?.title || '';
+
+    const calRow = document.getElementById('calendar-add-row');
+    if (calRow) calRow.style.display = 'block';
+
+    // Keep the resolved ticket in memory so Download PDF / Add to Calendar /
+    // anything else that reads `lastPurchasedTickets` uses the same object.
+    this.lastPurchasedTickets = [{ ...ticket, id: ticketId }];
   }
 
   async viewTicket(ticketId, eventId, type) {
