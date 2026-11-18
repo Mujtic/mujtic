@@ -877,31 +877,23 @@ class MujticApp {
         return;
       }
 
-      // ── Same post-purchase steps as the free flow in processPayment ──
-      // 1. Normalise the tickets (id fallback, ticketType fallback)
-      const norm = (Array.isArray(r.tickets) ? r.tickets : [r.tickets]).map(t => ({
-        ...t,
-        id: t.id || t._id || t.ticketId,
-        ticketType: t.ticketType || t.type || '',
-      }));
-      this.lastPurchasedTickets = norm;
-
-      // 2. Fetch the event — same call the free flow makes
-      const evId = this._idOf(norm[0]?.eventId);
-      const ev = this._findEvent(evId)
-        || await this.fetchApi(`/events/${evId}`).catch(() => null)
-        || this.lastPurchasedEvent
-        || { title: '' };
-      this.lastPurchasedEvent = ev;
-
-      // 3. Refresh data
+      this.showSuccess('Payment successful! Your tickets are ready.');
       await this.loadAllData();
 
-      // 4. Route: logged-in users land on profile; guests stay on home
-      this.showSection(this.currentUser ? 'profile' : 'home');
-
-      // 5. Open the ticket modal — identical to the free flow
-      this._showTicketModal(norm[0], ev);
+      if (this.currentUser) {
+        // Logged in: profile page, then open the QR modal for the first ticket
+        this.showSection('profile');
+        const firstId = r.tickets[0].id;
+        const fullTicket = this.userTickets.find(t => t.id === firstId || t._id === firstId);
+        if (fullTicket) {
+          const evId = this._idOf(fullTicket.eventId);
+          const ev = this._findEvent(evId) || await this.fetchApi(`/events/${evId}`).catch(() => null);
+          if (ev) this._showTicketModal(fullTicket, ev);
+        }
+      } else {
+        // Guest: show a dedicated confirmation screen (no login required)
+        await this._showGuestTicketConfirmation(r.tickets, reference);
+      }
 
       // Attach reminder if user opted in before redirect
       const pend = sessionStorage.getItem('mujtic_pending_reminder');
@@ -923,81 +915,6 @@ class MujticApp {
     } catch (err) {
       this.showError(err.message || 'Could not verify payment.');
     }
-  }
-
- async _showGuestTicketConfirmation(tickets, reference) {
-    // Hide every other section, then show a dedicated guest panel
-    document.getElementById('home-section').style.display = 'none';
-    document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
-    const footer = document.getElementById('site-footer');
-    if (footer) footer.style.display = 'block';
-
-    // Build / reuse a container
-    let box = document.getElementById('guest-ticket-confirmation');
-    if (!box) {
-      box = document.createElement('section');
-      box.id = 'guest-ticket-confirmation';
-      box.className = 'section';
-      // Insert right before the footer so it sits inside the normal layout
-      const footerEl = document.getElementById('site-footer');
-      footerEl.parentNode.insertBefore(box, footerEl);
-    }
-    box.style.display = 'block';
-
-    // Resolve the event title(s) for display
-    const evId = this._idOf(tickets[0]?.eventId);
-    let ev = this._findEvent(evId);
-    if (!ev && evId) ev = await this.fetchApi(`/events/${evId}`).catch(() => null);
-    const eventTitle = ev?.title || 'your event';
-    const ticketCount = tickets.length;
-
-    box.innerHTML = `
-    <div class="ep-wrap" style="max-width:640px;margin:0 auto;padding:2rem 1rem 3rem;">
-      <div class="empty-state" style="text-align:center;padding:2rem 1rem;">
-        <div style="font-size:2.5rem;color:var(--mint);margin-bottom:0.75rem;">
-          <i class="fas fa-circle-check"></i>
-        </div>
-        <h2 style="margin-bottom:0.5rem;">Payment successful</h2>
-        <p style="color:var(--muted);margin-bottom:1.5rem;">
-          Your ${ticketCount === 1 ? 'ticket is' : ticketCount + ' tickets are'} ready for
-          <strong>${esc(eventTitle)}</strong>.
-          We've also emailed ${ticketCount === 1 ? 'it' : 'them'} to you.
-        </p>
-        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;justify-content:center;margin-bottom:1.5rem;">
-          <button class="btn btn-primary" id="guest-open-ticket">
-            <i class="fas fa-qrcode"></i> View ticket${ticketCount > 1 ? 's' : ''}
-          </button>
-          ${ev ? `<button class="btn btn-ghost" onclick="app.showEventDetail('${esc(ev._id)}')">
-            <i class="fas fa-calendar-alt"></i> Event details
-          </button>` : ''}
-          <button class="btn btn-ghost" onclick="app.showSection('home')">
-            <i class="fas fa-arrow-left"></i> Browse more events
-          </button>
-        </div>
-        <p style="color:var(--muted);font-size:0.75rem;font-family:'JetBrains Mono',monospace;">
-          Reference: ${esc(reference)}
-        </p>
-        <p style="color:var(--muted);font-size:0.8rem;margin-top:1rem;">
-          Want to manage your tickets later?
-          <a href="#" onclick="event.preventDefault();app.openAuthModal?.()" style="color:var(--teal);">Create an account</a>
-          with this email — your purchase will be linked automatically.
-        </p>
-      </div>
-    </div>`;
-
-    // "View ticket" opens the existing QR modal for the first ticket.
-    // The modal doesn't require currentUser — it just renders the QR canvas.
-    box.querySelector('#guest-open-ticket')?.addEventListener('click', async () => {
-      const t = tickets[0];
-      const ticketId = t.id || t._id || t.ticketId;
-      // The verify response may not include the full ticket shape, so fetch it
-      // from the public ticket endpoint if available, else render what we have.
-      let full = t;
-      try {
-        full = await this.fetchApi(`/tickets/${encodeURIComponent(ticketId)}`);
-      } catch { /* fall back to the verify payload */ }
-      if (ev) this._showTicketModal({ id: ticketId, ...full }, ev);
-    });
   }
 
   // ─── Load fee settings (both tracks) ─────────────────────────
