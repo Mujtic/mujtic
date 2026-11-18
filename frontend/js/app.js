@@ -867,6 +867,39 @@ class MujticApp {
     } catch { this.logout(true); }
   }
 
+  // ─── Paystack return helpers ──────────────────────────────
+  _readPendingCheckout(reference) {
+    try {
+      const p = JSON.parse(sessionStorage.getItem('mujtic_pending_checkout') || 'null');
+      if (!p) return null;
+      if (p.reference && reference && String(p.reference) !== String(reference)) return null;
+      return p;
+    } catch { return null; }
+  }
+
+  // Merge every source we have into one complete ticket object the PDF can use
+  _normalizePurchasedTickets(raw, pending, ev) {
+    return (raw || []).map(t => {
+      const id   = t.id || t._id || t.ticketId;
+      const mine = this.userTickets.find(u => String(u.id) === String(id) || String(u._id) === String(id)) || {};
+      const m    = { ...t, ...mine };                       // server-complete record wins
+      const type = m.ticketType || m.type || pending?.ticketType || '';
+      return {
+        ...m,
+        id,
+        ticketType:  type,
+        eventId:     this._idOf(m.eventId || m.event) || pending?.eventId || '',
+        eventTitle:  m.eventTitle || ev?.title || pending?.eventTitle || '',
+        price:       m.price != null ? m.price : (ev && type ? this.getTicketPrice(ev, type) : 0),
+        buyerName:   m.buyerName  || m.userName  || pending?.buyerName  || this.currentUser?.name  || '',
+        buyerEmail:  m.buyerEmail || m.userEmail || pending?.buyerEmail || this.currentUser?.email || '',
+        userName:    m.userName   || m.buyerName || pending?.buyerName  || this.currentUser?.name  || '',
+        userEmail:   m.userEmail  || m.buyerEmail|| pending?.buyerEmail || this.currentUser?.email || '',
+        purchasedAt: m.purchasedAt || m.createdAt || new Date().toISOString(),
+      };
+    });
+  }
+
   async _verifyPaystackReturn(reference) {
     this.showToast('Verifying payment…', 'info', 8000);
     try {
@@ -879,21 +912,28 @@ class MujticApp {
 
       this.showSuccess('Payment successful! Your tickets are ready.');
       await this.loadAllData();
-      this.showSection('profile');
 
-      // Show the QR modal for the first ticket — signed-in users only.
-      // Guests can't look the ticket up locally (loadUserTickets is skipped
-      // for guests), so they rely on the confirmation email.
+      // ── Rebuild the event + tickets (this is what the PDF reads) ──
+      const pending = this._readPendingCheckout(reference);
+      const first   = r.tickets[0] || {};
+      const evId    = this._idOf(first.eventId || first.event || r.eventId || r.event) || pending?.eventId || '';
+
+      let ev = null;
+      if (evId) {
+        ev = await this.fetchApi(`/events/${encodeURIComponent(evId)}`, { successMsg: false }).catch(() => null)
+          || this._findEvent(evId);
+      }
+      if (!ev && pending) ev = { _id: pending.eventId, title: pending.eventTitle };
+
+      const tickets = this._normalizePurchasedTickets(r.tickets, pending, ev);
+      this.lastPurchasedTickets = tickets;
+      this.lastPurchasedEvent   = ev;
+
       if (this.currentUser) {
-        const firstId = r.tickets[0].id;
-        const fullTicket = this.userTickets.find(t => t.id === firstId || t._id === firstId);
-        if (fullTicket) {
-          const evId = this._idOf(fullTicket.eventId);
-          const ev = this._findEvent(evId) || await this.fetchApi(`/events/${evId}`).catch(() => null);
-          if (ev) this._showTicketModal(fullTicket, ev);
-        }
+        this.showSection('profile');
+        this._showTicketModal(tickets[0], ev);
       } else {
-        this.showToast('Your tickets have been emailed to you.', 'info', 6000);
+        await this._showGuestTicketConfirmation(tickets, reference, ev);
       }
 
       // Attach reminder if user opted in before redirect
@@ -901,21 +941,73 @@ class MujticApp {
       if (pend && this.currentUser) {
         try {
           const d = JSON.parse(pend);
-          const rem = {
+          this.reminders.push({
             id: 'REM-' + Math.random().toString(36).slice(2, 10).toUpperCase(),
             userId: this.currentUser.id,
             eventId: d.eventId,
             eventTitle: d.eventTitle,
-            eventDate: d.eventDate || new Date().toISOString(),
-          };
-          this.reminders.push(rem);
+            eventDate: d.eventDate || ev?.date || new Date().toISOString(),
+          });
           this.saveToStorage('mujtic_reminders', this.reminders);
         } catch {}
         sessionStorage.removeItem('mujtic_pending_reminder');
       }
+      try { sessionStorage.removeItem('mujtic_pending_checkout'); } catch {}
     } catch (err) {
       this.showError(err.message || 'Could not verify payment.');
     }
+  }
+
+  async _showGuestTicketConfirmation(tickets, reference, ev) {
+    document.getElementById('home-section').style.display = 'none';
+    document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
+    const footer = document.getElementById('site-footer');
+    if (footer) footer.style.display = 'block';
+
+    let box = document.getElementById('guest-ticket-confirmation');
+    if (!box) {
+      box = document.createElement('section');
+      box.id = 'guest-ticket-confirmation';
+      box.className = 'section';
+      footer.parentNode.insertBefore(box, footer);
+    }
+    box.style.display = 'block';
+
+    const eventTitle  = ev?.title || tickets[0]?.eventTitle || 'your event';
+    const ticketCount = tickets.length;
+    const eventId     = ev?._id || tickets[0]?.eventId || '';
+
+    box.innerHTML = `
+    <div class="ep-wrap" style="max-width:640px;margin:0 auto;padding:2rem 1rem 3rem;">
+      <div class="empty-state" style="text-align:center;padding:2rem 1rem;">
+        <div style="font-size:2.5rem;color:var(--mint);margin-bottom:0.75rem;"><i class="fas fa-circle-check"></i></div>
+        <h2 style="margin-bottom:0.5rem;">Payment successful</h2>
+        <p style="color:var(--muted);margin-bottom:1.5rem;">
+          Your ${ticketCount === 1 ? 'ticket is' : ticketCount + ' tickets are'} ready for
+          <strong>${esc(eventTitle)}</strong>.
+          We've also emailed ${ticketCount === 1 ? 'it' : 'them'} to you.
+        </p>
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;justify-content:center;margin-bottom:1.5rem;">
+          <button class="btn btn-primary" id="guest-open-ticket"><i class="fas fa-qrcode"></i> View ticket${ticketCount > 1 ? 's' : ''}</button>
+          ${eventId ? `<button class="btn btn-ghost" onclick="app.showEventDetail('${esc(eventId)}')"><i class="fas fa-calendar-alt"></i> Event details</button>` : ''}
+          <button class="btn btn-ghost" onclick="app.showSection('home')"><i class="fas fa-arrow-left"></i> Browse more events</button>
+        </div>
+        <p style="color:var(--muted);font-size:0.75rem;font-family:'JetBrains Mono',monospace;">Reference: ${esc(reference)}</p>
+        <p style="color:var(--muted);font-size:0.8rem;margin-top:1rem;">
+          Want to manage your tickets later?
+          <a href="#" onclick="event.preventDefault();app.openModal('auth-modal')" style="color:var(--teal);">Create an account</a>
+          with this email — your purchase will be linked automatically.
+        </p>
+      </div>
+    </div>`;
+
+    // No server round-trip and no `if (ev)` guard: the ticket is already complete,
+    // so the button can never silently do nothing.
+    box.querySelector('#guest-open-ticket')?.addEventListener('click', () => {
+      this.lastPurchasedTickets = tickets;
+      this.lastPurchasedEvent   = ev;
+      this._showTicketModal(tickets[0], ev);
+    });
   }
 
   // ─── Load fee settings (both tracks) ─────────────────────────
@@ -2359,6 +2451,23 @@ class MujticApp {
           groupBooking: qty >= 5 ? { companyName, billingAddress } : null,
         }),
       });
+
+      // Everything the return page needs to rebuild the ticket + PDF.
+      // The page is fully reloaded by Paystack, so memory is wiped.
+      try {
+        sessionStorage.setItem('mujtic_pending_checkout', JSON.stringify({
+          reference:   res.reference || null,
+          eventId:     this.selectedTicket.eventId,
+          eventTitle:  this.lastPurchasedEvent?.title || '',
+          ticketType:  this.selectedTicket.type,
+          quantity:    qty,
+          buyerName:   buyerName,
+          buyerEmail:  email,
+          buyerPhone:  phone,
+          savedAt:     Date.now(),
+        }));
+      } catch {}
+
       // Preserve the reminder choice — handled after the redirect returns
       if (remind) {
         sessionStorage.setItem('mujtic_pending_reminder', JSON.stringify({
@@ -2375,6 +2484,11 @@ class MujticApp {
 
   // Shared QR modal — used right after purchase AND from Purchase History
   _showTicketModal(ticket, ev) {
+    if (ev) this.lastPurchasedEvent = ev;
+    if (!(this.lastPurchasedTickets || []).some(x => String(x.id) === String(ticket.id))) {
+      this.lastPurchasedTickets = [ticket];
+    }
+
     const canvas = document.getElementById('ticket-canvas');
     canvas.innerHTML = '';
     this.closeAllModals();
