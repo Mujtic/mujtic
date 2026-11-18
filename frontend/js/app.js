@@ -880,21 +880,32 @@ class MujticApp {
       this.showSuccess('Payment successful! Your tickets are ready.');
       await this.loadAllData();
 
+      // Resolve the event once, using whatever we have
+      const firstTicket = r.tickets[0];
+      const evId = this._idOf(firstTicket.eventId);
+      let ev = this._findEvent(evId);
+      if (!ev && evId) ev = await this.fetchApi(`/events/${evId}`).catch(() => null);
+      if (!ev) ev = this.lastPurchasedEvent || { title: '' };
+
+      // Build the ticket object to render. Prefer the full ticket from userTickets
+      // (logged-in path) but fall back to the verify payload for guests.
+      const fullTicket = this.userTickets.find(t => t.id === firstTicket.id || t._id === firstTicket.id)
+        || firstTicket;
+
+      this.lastPurchasedTickets = r.tickets;
+      this.lastPurchasedEvent = ev;
+
+      // Route to the right screen
       if (this.currentUser) {
-        // Logged in: profile page, then open the QR modal for the first ticket
         this.showSection('profile');
-        const firstId = r.tickets[0].id;
-        const fullTicket = this.userTickets.find(t => t.id === firstId || t._id === firstId);
-        if (fullTicket) {
-          const evId = this._idOf(fullTicket.eventId);
-          const ev = this._findEvent(evId) || await this.fetchApi(`/events/${evId}`).catch(() => null);
-          if (ev) this._showTicketModal(fullTicket, ev);
-        }
       } else {
-        // Guest: show a dedicated confirmation screen (no login required)
-        await this._showGuestTicketConfirmation(r.tickets, reference);
+        // Guests don't have a profile — show a lightweight confirmation section
+        // (or just leave them on home) before opening the modal
+        this.showSection('home');
       }
 
+      // Open the QR modal for everyone — guest or logged-in
+      this._showTicketModal(fullTicket, ev);
 
 
 
