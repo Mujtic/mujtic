@@ -104,13 +104,21 @@ class PaymentService {
     // ── Paystack initialize ──
     let init;
     try {
+
+      // Paystack accepts ISO 4217 currency codes. "GHC" is the deprecated
+      // pre-2007 Ghanaian cedi code — events created via the old form store
+      // 'GHC', but Paystack only recognises 'GHS'. Normalise at the boundary
+      // so existing events keep working without a data migration.
+      const rawCurrency      = String(payment.pricing.currency || 'GHS').toUpperCase();
+      const paystackCurrency = rawCurrency === 'GHC' ? 'GHS' : rawCurrency;
+
       init = await paystack.transaction.initialize({
         email: payment.buyerEmail,
         amount: amountPesewas,
-        currency: payment.pricing.currency,
+        currency: paystackCurrency,
         reference,
         callback_url: `${process.env.FRONTEND_URL || 'https://mujtic.vercel.app'}/?payment_ref=${reference}`,
-
+        channels: ['mobile_money', 'card'],
         metadata: {
           paymentId: String(payment._id),
           eventId: String(event._id),
