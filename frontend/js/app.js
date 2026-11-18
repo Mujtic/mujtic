@@ -880,41 +880,21 @@ class MujticApp {
       this.showSuccess('Payment successful! Your tickets are ready.');
       await this.loadAllData();
 
-      // Resolve the event once, using whatever we have
-      const firstTicket = r.tickets[0];
-      const evId = this._idOf(firstTicket.eventId);
-      let ev = this._findEvent(evId);
-      if (!ev && evId) ev = await this.fetchApi(`/events/${evId}`).catch(() => null);
-      if (!ev) ev = this.lastPurchasedEvent || { title: '' };
-
-      // Normalise the verify payload the same way the free-claim flow does,
-      // so every ticket handed to the modal has a real `id`. The backend
-      // returns Mongo docs (`_id`), but the QR + download code expects `id`.
-      const normalised = (Array.isArray(r.tickets) ? r.tickets : [r.tickets]).map(t => {
-        const id = t.id || t._id || t.ticketId;
-        const cached = this.userTickets.find(
-          u => (u.id && String(u.id) === String(id)) || (u._id && String(u._id) === String(id))
-        );
-        return {
-          ...(cached || {}),
-          ...t,
-          id,                                                    // ← the fix
-          ticketType: t.ticketType || t.type || cached?.ticketType || this.selectedTicket?.type,
-        };
-      });
-
-      this.lastPurchasedTickets = normalised;
-      this.lastPurchasedEvent = ev;
-
-      // Route to the right screen
       if (this.currentUser) {
+        // Logged in: profile page, then open the QR modal for the first ticket
         this.showSection('profile');
+        const firstId = r.tickets[0].id;
+        const fullTicket = this.userTickets.find(t => t.id === firstId || t._id === firstId);
+        if (fullTicket) {
+          const evId = this._idOf(fullTicket.eventId);
+          const ev = this._findEvent(evId) || await this.fetchApi(`/events/${evId}`).catch(() => null);
+          if (ev) this._showTicketModal(fullTicket, ev);
+        }
       } else {
-        this.showSection('home');
+        // Guest: show a dedicated confirmation screen (no login required)
+        await this._showGuestTicketConfirmation(r.tickets, reference);
       }
 
-      // Open the QR modal for everyone — guest or logged-in
-      this._showTicketModal(normalised[0], ev);
 
 
 
