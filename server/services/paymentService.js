@@ -12,13 +12,15 @@ const { AppError } = require('../utils/appError');
 const { logger } = require('../config/logger');
 const { escapeHtml, sanitizeHeader } = require('../utils/htmlSecurity');
 
-const CALLBACK_PATH = '/api/payments/callback';
+// How long a fulfilment attempt "owns" a payment before another caller
+// (webhook retry, cron, the buyer's browser) is allowed to take over.
+const FULFILMENT_LEASE_MS = 2 * 60 * 1000;
 
 class PaymentService {
 
-  // ── STEP 1: initialize — called by frontend before redirect ────────────
+  // ── STEP 1: initialize — called by frontend before opening Paystack ───
   // Locks the price, creates a pending Payment row, then asks Paystack for a
-  // hosted checkout URL. No tickets are created here.
+  // hosted checkout. No tickets are created here.
   async initializeCharge({
                            eventId, ticketType, quantity,
                            buyerEmail, buyerPhone, buyerName,
@@ -45,9 +47,13 @@ class PaymentService {
 
     // ── Freeze pricing ──
     // Same rules as ticketService._priceOrder, computed here so the
-    // fulfillment step doesn't need to re-derive anything from live DB values.
+    // fulfilment step doesn't need to re-derive anything from live DB values.
     const unitFace  = this._facePriceFor(typeData);
     const subtotal  = Math.round(unitFace * qty * 100) / 100;
+
+    // Frozen now so a ticket bought during early bird stays "early bird" even if
+    // the window closes before fulfilment. Only flagged when it really was cheaper.
+    const isEarlyBird = this._isEarlyBird(typeData) && unitFace < (Number(typeData.price) || 0);
 
     let promoDiscount = 0;
     let appliedCoupon = null;
@@ -86,7 +92,9 @@ class PaymentService {
     const rawCurrency        = String(event.currency || 'GHS').toUpperCase();
     const normalizedCurrency = rawCurrency === 'GHC' ? 'GHS' : rawCurrency;
 
-    const reference = `MJT-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    // 12 random bytes: the reference appears in URLs and unlocks ticket IDs
+    // (which are the QR codes) through /verify, so it must not be guessable.
+    const reference = `MJT-${Date.now()}-${crypto.randomBytes(12).toString('hex')}`;
 
     const payment = new Payment({
       reference,
@@ -94,12 +102,13 @@ class PaymentService {
       userId: userId || null,
       ticketType,
       quantity: qty,
+      isEarlyBird,
       amountGHS: buyerTotal,
       amountPesewas,
       status: 'pending',
       buyerEmail: String(buyerEmail).toLowerCase().trim(),
       buyerPhone: buyerPhone || null,
-      buyerName: buyerName || buyerEmail.split('@')[0],
+      buyerName: buyerName || String(buyerEmail).split('@')[0],
       promoCode: promoCode || null,
       groupBooking: groupBooking || null,
       pricing: {
@@ -110,7 +119,7 @@ class PaymentService {
         platformFee:   money.platformFee,
         processingFee: money.processingFee,
         buyerTotal,
-        currency: normalizedCurrency,        // ← was `event.currency || 'GHS'`
+        currency: normalizedCurrency,
       },
     });
     await payment.save();
@@ -121,7 +130,7 @@ class PaymentService {
       init = await paystack.transaction.initialize({
         email: payment.buyerEmail,
         amount: amountPesewas,
-        currency: payment.pricing.currency,   // already normalized
+        currency: payment.pricing.currency,
         reference,
         callback_url: `${process.env.FRONTEND_URL || 'https://mujtic.vercel.app'}/?payment_ref=${reference}`,
         channels: ['mobile_money', 'card'],
@@ -158,36 +167,42 @@ class PaymentService {
     return {
       reference,
       authorizationUrl: init.data.authorization_url,
+      accessCode: init.data.access_code,       // lets the frontend open the Paystack popup
       amountGHS: buyerTotal,
     };
   }
 
-  _facePriceFor(typeData) {
-    const now = new Date();
-    let unit = Number(typeData.price) || 0;
-    if (typeData.earlyBirdEnd && typeData.earlyBirdPrice != null) {
-      const ebEnd = new Date(typeData.earlyBirdEnd);
-      if (!isNaN(ebEnd) && now < ebEnd) unit = Number(typeData.earlyBirdPrice);
-    }
-    return unit;
+  _isEarlyBird(typeData) {
+    if (!typeData.earlyBirdEnd || typeData.earlyBirdPrice == null) return false;
+    const ebEnd = new Date(typeData.earlyBirdEnd);
+    return !isNaN(ebEnd) && new Date() < ebEnd;
   }
 
-  // ── STEP 2: verify — called from webhook AND from callback verify ──────
-  // Idempotent. Double webhook delivery, callback+webhook racing, or a manual
-  // retry all converge on: the buyer's tickets are created exactly once.
+  _facePriceFor(typeData) {
+    if (this._isEarlyBird(typeData)) return Number(typeData.earlyBirdPrice);
+    return Number(typeData.price) || 0;
+  }
+
+  // ── STEP 2: verify — called from the webhook, the browser, and the cron ─
+  // Idempotent. Any number of callers, in any order, converge on: the buyer's
+  // tickets are created exactly once, and every caller gets those tickets back.
+  //
+  // Returns { ok, status, tickets?, alreadyFulfilled?, payment } where status is
+  //   'success'    paid + fulfilled (tickets included)
+  //   'processing' paid, another caller is fulfilling right now
+  //   'pending'    Paystack hasn't confirmed payment (yet): e.g. MoMo awaiting approval
+  //   'failed'     Paystack reports the charge failed / reversed
   async verifyAndFulfill(reference) {
     if (!reference) throw new AppError('reference is required', 400);
 
     const payment = await Payment.findOne({ reference });
     if (!payment) throw new AppError('Payment not found', 404);
 
-    // Already fulfilled — return existing tickets
-    if (payment.status === 'success' && payment.fulfilledAt) {
-      return { ok: true, alreadyFulfilled: true, payment };
-    }
+    // Already fulfilled: hand back the real tickets
+    if (payment.fulfilledAt) return this._done(payment, true);
 
     // Ask Paystack for the authoritative state. Never trust a redirect query
-    // param on its own — Paystack's verify is the only source of truth.
+    // param on its own: Paystack's verify is the only source of truth.
     let verified;
     try {
       verified = await paystack.transaction.verify({ reference });
@@ -199,19 +214,19 @@ class PaymentService {
     const data = verified?.data;
     if (!data) throw new AppError('Paystack returned no data', 502);
 
+    // Not paid (yet). NEVER write a terminal state here: mobile money stays
+    // pending/ongoing until the buyer approves on their phone, and an
+    // "abandoned" checkout can still be completed later. A later success must win.
     if (data.status !== 'success') {
       await Payment.updateOne(
-        { _id: payment._id },
-        { $set: {
-            status: data.status === 'abandoned' ? 'abandoned' : 'failed',
-            'paystack.gatewayResponse': data.gateway_response || data.status,
-            failedReason: data.gateway_response || `Paystack status: ${data.status}`,
-          } }
+        { _id: payment._id, status: 'pending' },
+        { $set: { 'paystack.gatewayResponse': data.gateway_response || data.status } }
       );
-      return { ok: false, status: data.status, payment };
+      const dead = ['failed', 'reversed'].includes(data.status);
+      return { ok: false, status: dead ? 'failed' : 'pending', payment };
     }
 
-    // Amount tamper check — Paystack reports the amount in pesewas
+    // Amount tamper check: Paystack reports the amount in pesewas
     if (Number(data.amount) !== payment.amountPesewas) {
       logger.error('Paystack amount mismatch', {
         reference, expected: payment.amountPesewas, received: data.amount,
@@ -232,12 +247,20 @@ class PaymentService {
       throw new AppError('Payment currency mismatch', 400);
     }
 
-    // Atomically claim the payment (pending → success). Only one caller wins
-    // this findOneAndUpdate; the loser falls through and re-reads the state.
+    // Claim FULFILMENT (not merely "paid"). The lock has a lease, so a caller that
+    // crashed mid-way doesn't strand the payment: once the lease expires, the
+    // webhook retry / cron / buyer can take it over.
+    const stale = new Date(Date.now() - FULFILMENT_LEASE_MS);
     const claimed = await Payment.findOneAndUpdate(
-      { _id: payment._id, status: 'pending' },
+      {
+        _id: payment._id,
+        fulfilledAt: null,
+        status: { $ne: 'refunded' },
+        $or: [{ fulfillmentLockedAt: null }, { fulfillmentLockedAt: { $lt: stale } }],
+      },
       { $set: {
           status: 'success',
+          fulfillmentLockedAt: new Date(),
           'paystack.channel': data.channel,
           'paystack.gatewayResponse': data.gateway_response,
           'paystack.paidAt': new Date(data.paid_at || Date.now()),
@@ -245,29 +268,46 @@ class PaymentService {
         } },
       { returnDocument: 'after' }
     );
+
     if (!claimed) {
-      // Someone else claimed it between our read and our write
+      // Another caller is mid-way, or has just finished
       const fresh = await Payment.findById(payment._id);
-      return { ok: true, alreadyFulfilled: !!fresh?.fulfilledAt, payment: fresh };
+      if (fresh?.fulfilledAt) return this._done(fresh, true);
+      return { ok: true, status: 'processing', payment: fresh };
     }
 
-    // Fulfill — create tickets, reserve capacity, send emails
     try {
       const result = await this._fulfillTickets(claimed);
-      return { ok: true, ...result, payment: claimed };
+      logger.info('Payment fulfilled', { reference, tickets: result.tickets.length });
+      return { ok: true, status: 'success', tickets: result.tickets, payment: claimed };
     } catch (err) {
       logger.error('Ticket fulfillment failed after payment success', {
         reference, err: err.message,
       });
+      // Release the lock so the next attempt (webhook retry / cron / buyer) can try again
       await Payment.updateOne(
         { _id: claimed._id },
-        { $set: { failedReason: `Fulfillment failed: ${err.message}` } }
+        { $set: { fulfillmentLockedAt: null, failedReason: `Fulfillment failed: ${err.message}` } }
       );
       throw err;
     }
   }
 
+  async _done(payment, alreadyFulfilled) {
+    const tickets = await Ticket.find({ id: { $in: payment.ticketIds } });
+    return { ok: true, status: 'success', alreadyFulfilled, tickets, payment };
+  }
+
   async _fulfillTickets(payment) {
+    // Safety net: a previous attempt may have saved the tickets and then crashed
+    // before marking the payment done. Never create (or reserve capacity for) them twice.
+    const existing = await Ticket.find({ paymentIntentId: payment.reference });
+    if (existing.length >= payment.quantity) {
+      const ids = existing.map((t) => t.id);
+      await Payment.updateOne({ _id: payment._id }, { $set: { ticketIds: ids, fulfilledAt: new Date() } });
+      return { ticketIds: ids, tickets: existing };
+    }
+
     const event = await Event.findById(payment.eventId);
     if (!event) throw new AppError('Event no longer exists', 404);
 
@@ -313,6 +353,9 @@ class PaymentService {
           feePaidBy:     'organizer',
           amountPaid:    Math.round((facePrices[i] + processingFees[i]) * 100) / 100,
 
+          // NOTE: match the early-bird field name your Ticket schema / ticketService uses.
+          isEarlyBird:   !!payment.isEarlyBird,
+
           userEmail:    payment.buyerEmail,
           userPhone:    payment.buyerPhone,
           buyerName:    payment.buyerName,
@@ -336,7 +379,7 @@ class PaymentService {
         ticketIds.push(ticketId);
       }
     } catch (err) {
-      // Roll back everything so a retry after ops fixes the issue starts clean
+      // Roll back everything so a retry starts clean
       logger.error('Ticket creation failed during Paystack fulfillment — rolling back', {
         err: err.message, reference: payment.reference,
       });
@@ -352,7 +395,7 @@ class PaymentService {
       { $set: { ticketIds, fulfilledAt: new Date() } }
     );
 
-    // Fire-and-forget notifications
+    // Fire-and-forget notifications: never block or fail the buyer's response
     this._sendTicketEmails(event, ticketDocs).catch((err) =>
       logger.error('Paystack ticket email failed', { err: err.message, reference: payment.reference })
     );
@@ -432,6 +475,12 @@ class PaymentService {
   }
 
   async handleWebhook(rawBody, signature) {
+    // If express.json() ran before this route, req.body is an object and the
+    // signature can never match. Fail loudly instead of silently dropping payments.
+    if (!Buffer.isBuffer(rawBody)) {
+      throw new AppError('Webhook body must be the raw Buffer: mount express.raw() before express.json()', 500);
+    }
+
     if (!this.verifyWebhookSignature(rawBody, signature)) {
       throw new AppError('Invalid webhook signature', 401);
     }
@@ -440,11 +489,16 @@ class PaymentService {
     try { payload = JSON.parse(rawBody.toString()); }
     catch { throw new AppError('Invalid webhook JSON', 400); }
 
+    logger.info('Paystack webhook received', {
+      event: payload.event, reference: payload.data?.reference,
+    });
+
     if (payload.event === 'charge.success') {
       const reference = payload.data?.reference;
       if (!reference) throw new AppError('Missing reference in webhook', 400);
-      // Fire-and-forget; verifyAndFulfill is idempotent so the concurrent
-      // frontend callback (if it also verifies) can't double-fulfill.
+      // Fire-and-forget so Paystack gets its 200 immediately. verifyAndFulfill is
+      // idempotent, so a concurrent browser verify can't double-fulfil, and the
+      // reconcile cron picks up anything that fails here.
       this.verifyAndFulfill(reference).catch((err) =>
         logger.error('Webhook fulfillment failed', { reference, err: err.message })
       );

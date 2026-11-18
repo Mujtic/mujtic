@@ -30,6 +30,9 @@ const paymentSchema = new mongoose.Schema({
   promoCode:    { type: String, default: null },
   groupBooking: { type: mongoose.Schema.Types.Mixed, default: null },
 
+  isEarlyBird:         { type: Boolean, default: false },   // next to ticketType / quantity
+  fulfillmentLockedAt: { type: Date, default: null },       // next to fulfilledAt
+
   // Frozen pricing breakdown — same fields ticketService writes on tickets
   pricing: {
     faceTotal:       Number,   // amount the organizer is paid, before fees

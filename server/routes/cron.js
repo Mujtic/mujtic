@@ -23,4 +23,7 @@ router.post(
   cronController.publishScheduledEvents
 );
 
+router.post('/reconcile-payments', /* same auth as the other cron routes */ cronController.reconcilePayments);
+
+
 module.exports = router;

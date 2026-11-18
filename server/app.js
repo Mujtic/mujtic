@@ -9,7 +9,7 @@ const app = express();
   // Paystack signs the raw request body with PAYSTACK_SECRET_KEY. If
     // express.json() consumes the stream first, the signature won't match.
       // Mounted here — before setupMiddleware — so it bypasses the global parser.
-        +app.post(
+        app.post(
            '/api/payments/paystack/webhook',
             express.raw({ type: 'application/json', limit: '500kb' }),
            require('./controllers/paymentController').webhook

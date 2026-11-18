@@ -901,11 +901,25 @@ class MujticApp {
   }
 
   async _verifyPaystackReturn(reference) {
+    if (this._verifyingRef === reference) return;       // popup + return URL + recovery can all fire
+    this._verifyingRef = reference;
     this.showToast('Verifying payment…', 'info', 8000);
     try {
-      const r = await this.fetchApi(`/payments/verify/${encodeURIComponent(reference)}`, { successMsg: false });
+      let r;
+      for (let i = 0; i < 20; i++) {
+        r = await this.fetchApi(`/payments/verify/${encodeURIComponent(reference)}`, { successMsg: false });
+        if (r.status !== 'pending' && r.status !== 'processing') break;
+        if (i === 0) this.showToast('Waiting for payment confirmation…', 'info', 6000);
+        await this.delay(3000);
+      }
 
+      if (r.status === 'pending' || r.status === 'processing') {
+        // Keep mujtic_pending_payment so the next visit retries
+        this.showInfo('Payment not confirmed yet. If you paid, your ticket will arrive shortly. Check back in a minute.');
+        return;
+      }
       if (r.status !== 'success' || !r.tickets?.length) {
+        try { localStorage.removeItem('mujtic_pending_payment'); } catch {}
         this.showError('Payment was not completed. If you were charged, contact support with reference ' + reference);
         return;
       }
@@ -913,10 +927,10 @@ class MujticApp {
       this.showSuccess('Payment successful! Your tickets are ready.');
       await this.loadAllData();
 
-      // ── Rebuild the event + tickets (this is what the PDF reads) ──
+      // Rebuild the event + tickets (this is what the PDF reads)
       const pending = this._readPendingCheckout(reference);
       const first   = r.tickets[0] || {};
-      const evId    = this._idOf(first.eventId || first.event || r.eventId || r.event) || pending?.eventId || '';
+      const evId    = this._idOf(first.eventId) || pending?.eventId || '';
 
       let ev = null;
       if (evId) {
@@ -936,7 +950,6 @@ class MujticApp {
         await this._showGuestTicketConfirmation(tickets, reference, ev);
       }
 
-      // Attach reminder if user opted in before redirect
       const pend = sessionStorage.getItem('mujtic_pending_reminder');
       if (pend && this.currentUser) {
         try {
@@ -952,9 +965,14 @@ class MujticApp {
         } catch {}
         sessionStorage.removeItem('mujtic_pending_reminder');
       }
-      try { sessionStorage.removeItem('mujtic_pending_checkout'); } catch {}
+      try {
+        sessionStorage.removeItem('mujtic_pending_checkout');
+        localStorage.removeItem('mujtic_pending_payment');
+      } catch {}
     } catch (err) {
       this.showError(err.message || 'Could not verify payment.');
+    } finally {
+      this._verifyingRef = null;
     }
   }
 
@@ -1008,6 +1026,19 @@ class MujticApp {
       this.lastPurchasedEvent   = ev;
       this._showTicketModal(tickets[0], ev);
     });
+  }
+
+  async recoverPendingPayment() {
+    let p = null;
+    try { p = JSON.parse(localStorage.getItem('mujtic_pending_payment') || 'null'); } catch {}
+    if (!p?.reference) return;
+    if (Date.now() - p.ts > 6 * 3600e3) { try { localStorage.removeItem('mujtic_pending_payment'); } catch {} return; }
+    if (this._verifyingRef === p.reference) return;      // the normal return flow is already handling it
+    try {
+      const r = await this.fetchApi(`/payments/verify/${encodeURIComponent(p.reference)}`, { successMsg: false });
+      if (r.status === 'success' && r.tickets?.length) await this._verifyPaystackReturn(p.reference);
+      else if (r.status === 'failed') localStorage.removeItem('mujtic_pending_payment');
+    } catch {}
   }
 
   // ─── Load fee settings (both tracks) ─────────────────────────
@@ -2433,11 +2464,11 @@ class MujticApp {
       return;
     }
 
-    // ── Paid ticket: Paystack hosted checkout ──
+    // ── Paid ticket: Paystack ──
     statusEl.className = 'status-msg loading';
-    statusEl.textContent = 'Redirecting to Paystack…';
+    statusEl.textContent = 'Starting secure payment…';
     try {
-      const res = await this.fetchApi('/payments/initialize',  {
+      const res = await this.fetchApi('/payments/initialize', {
         method: 'POST',
         successMsg: false,
         body: JSON.stringify({
@@ -2452,31 +2483,45 @@ class MujticApp {
         }),
       });
 
-
-      // Everything the return page needs to rebuild the ticket + PDF.
-      // The page is fully reloaded by Paystack, so memory is wiped.
+      // Context for the return page: the page reloads if we fall back to the redirect
       try {
         sessionStorage.setItem('mujtic_pending_checkout', JSON.stringify({
-          reference:   res.reference || null,
-          eventId:     this.selectedTicket.eventId,
-          eventTitle:  this.lastPurchasedEvent?.title || '',
-          ticketType:  this.selectedTicket.type,
-          quantity:    qty,
-          buyerName:   buyerName,
-          buyerEmail:  email,
-          buyerPhone:  phone,
-          savedAt:     Date.now(),
+          reference:  res.reference,
+          eventId:    this.selectedTicket.eventId,
+          eventTitle: this.lastPurchasedEvent?.title || '',
+          ticketType: this.selectedTicket.type,
+          quantity:   qty,
+          buyerName:  buyerName,
+          buyerEmail: email,
+          buyerPhone: phone,
+          savedAt:    Date.now(),
         }));
+        // Survives a closed tab, so the next visit can finish the order
+        localStorage.setItem('mujtic_pending_payment', JSON.stringify({ reference: res.reference, ts: Date.now() }));
+        if (remind) {
+          sessionStorage.setItem('mujtic_pending_reminder', JSON.stringify({
+            eventId: this.selectedTicket.eventId,
+            eventTitle: this.lastPurchasedEvent?.title || '',
+            eventDate: this.lastPurchasedEvent?.date || '',
+          }));
+        }
       } catch {}
 
-      // Preserve the reminder choice — handled after the redirect returns
-      if (remind) {
-        sessionStorage.setItem('mujtic_pending_reminder', JSON.stringify({
-          eventId: this.selectedTicket.eventId,
-          eventTitle: this.lastPurchasedEvent?.title || '',
-        }));
+      // Popup: onSuccess fires by itself, with no redirect and no "I've completed payment" button
+      if (window.PaystackPop && res.accessCode) {
+        statusEl.textContent = 'Complete the payment in the secure window…';
+        const popup = new PaystackPop();
+        popup.resumeTransaction(res.accessCode, {
+          onSuccess: tx => this._verifyPaystackReturn((tx && tx.reference) || res.reference),
+          onCancel: () => {
+            statusEl.className = 'status-msg error';
+            statusEl.textContent = 'Payment window closed. If you already paid, your ticket will still arrive.';
+          },
+          onError: () => { window.location.href = res.authorizationUrl; },   // fall back to the hosted page
+        });
+        return;
       }
-      window.location.href = res.authorizationUrl;
+      window.location.href = res.authorizationUrl;                            // popup script blocked / unavailable
     } catch (err) {
       statusEl.className = 'status-msg error';
       statusEl.textContent = err.message || 'Could not start payment.';
@@ -4963,6 +5008,7 @@ MujticApp.prototype.init = async function () {
   this._watchSystemTheme();
   await _origInit.call(this);
   this._bindValidationFeatures();
+  this.recoverPendingPayment();
   this.initLocationPrompt();
 
   window.addEventListener('hashchange', () => {
