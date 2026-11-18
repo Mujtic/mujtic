@@ -102,7 +102,7 @@ class PaymentService {
         platformFee:   money.platformFee,
         processingFee: money.processingFee,
         buyerTotal,
-        currency: normalizedCurrency,        // ← normalized at write time
+        currency: normalizedCurrency,        // ← was `event.currency || 'GHS'`
       },
     });
     await payment.save();
@@ -113,7 +113,7 @@ class PaymentService {
       init = await paystack.transaction.initialize({
         email: payment.buyerEmail,
         amount: amountPesewas,
-        currency: payment.pricing.currency,   // already normalized above
+        currency: payment.pricing.currency,   // already normalized
         reference,
         callback_url: `${process.env.FRONTEND_URL || 'https://mujtic.vercel.app'}/?payment_ref=${reference}`,
         channels: ['mobile_money', 'card'],
@@ -215,13 +215,11 @@ class PaymentService {
       throw new AppError('Payment amount mismatch', 400);
     }
 
-    // Currency sanity. Backstop for any legacy Payment rows saved with the
-    // pre-2007 'GHC' code before initializeCharge started normalizing.
-    const expectedCurrency = payment.pricing.currency === 'GHC' ? 'GHS' : payment.pricing.currency;
-    if (data.currency && data.currency !== expectedCurrency) {
+    // Currency sanity
+    if (data.currency && data.currency !== payment.pricing.currency) {
       await Payment.updateOne(
         { _id: payment._id },
-        { $set: { status: 'failed', failedReason: `Currency mismatch: expected ${expectedCurrency}, got ${data.currency}` } }
+        { $set: { status: 'failed', failedReason: `Currency mismatch: expected ${payment.pricing.currency}, got ${data.currency}` } }
       );
       throw new AppError('Payment currency mismatch', 400);
     }
