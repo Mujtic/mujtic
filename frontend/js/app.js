@@ -300,7 +300,7 @@ class MujticApp {
     return n[slug] || slug;
   }
 
-  getCurrencySymbol(c) { return { USD: '$', EUR: '€', GBP: '£', CAD: 'CA$', GHC: '₵' }[c] || '₵'; }
+  getCurrencySymbol(c) {  return { USD: '$', EUR: '€', GBP: '£', CAD: 'CA$', GHC: '₵', GHS: '₵' }[c] || '₵'; }
   validateEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
   validatePhone(p) { return /^\+233\d{9}$/.test(p); }
 
@@ -2300,7 +2300,13 @@ class MujticApp {
         // The base `price` is per-unit, not the post-discount total. A ₵200
       // VIP ticket with a 100% coupon is still `price === 200`, so this check
       // has to use the actual total after group/promo discounts.
-       if (this._computeFinalTotal() < 1) {
+    // Any non-zero total under ₵1.00 is rounded up to ₵1.00 to match what the
+    // server charges. Exactly 0 (free ticket or 100% discount) uses the free
+    // claim flow; everything else goes through Paystack.
+    let payTotal = this._computeFinalTotal();
+    if (payTotal > 0 && payTotal < 1) payTotal = 1;
+
+    if (payTotal === 0)  {
 
       statusEl.className = 'status-msg loading';
       statusEl.textContent = 'Claiming tickets…';

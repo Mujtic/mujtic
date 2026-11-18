@@ -65,8 +65,16 @@ class PaymentService {
     if (faceTotal < 0.01) throw new AppError('Order total must be at least GHS 0.01', 400);
 
     const money = await settingsService.quoteOrder(faceTotal, event);
-    const buyerTotal   = money.buyerTotal;
-    const amountPesewas = Math.round(buyerTotal * 100);
+    let buyerTotal    = money.buyerTotal;
+    let amountPesewas = Math.round(buyerTotal * 100);
+
+    // Any non-zero total under ₵1.00 is rounded up to ₵1.00 so Paystack can
+    // charge it. A total of exactly 0 is a free order and never reaches this
+    // endpoint — the client routes it to /tickets/purchase instead.
+    if (amountPesewas > 0 && amountPesewas < 100) {
+      buyerTotal    = 1;
+      amountPesewas = 100;
+    }
 
     if (amountPesewas < 100) {
       throw new AppError('Order total is below Paystack’s minimum (GHS 1.00). Claim free tickets directly instead.', 400);
