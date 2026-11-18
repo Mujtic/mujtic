@@ -72,6 +72,12 @@ class PaymentService {
       throw new AppError('Order total is below Paystack’s minimum (GHS 1.00). Claim free tickets directly instead.', 400);
     }
 
+    // Paystack accepts ISO 4217 codes. "GHC" is the pre-2007 Ghanaian cedi code
+    // stored on older events. Normalize ONCE here so the stored Payment, the
+    // outbound Paystack request, and the verify comparison all agree on 'GHS'.
+    const rawCurrency        = String(event.currency || 'GHS').toUpperCase();
+    const normalizedCurrency = rawCurrency === 'GHC' ? 'GHS' : rawCurrency;
+
     const reference = `MJT-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
     const payment = new Payment({
@@ -96,7 +102,7 @@ class PaymentService {
         platformFee:   money.platformFee,
         processingFee: money.processingFee,
         buyerTotal,
-        currency: event.currency || 'GHS',
+        currency: normalizedCurrency,        // ← normalized at write time
       },
     });
     await payment.save();
@@ -104,18 +110,10 @@ class PaymentService {
     // ── Paystack initialize ──
     let init;
     try {
-
-      // Paystack accepts ISO 4217 currency codes. "GHC" is the deprecated
-      // pre-2007 Ghanaian cedi code — events created via the old form store
-      // 'GHC', but Paystack only recognises 'GHS'. Normalise at the boundary
-      // so existing events keep working without a data migration.
-      const rawCurrency      = String(payment.pricing.currency || 'GHS').toUpperCase();
-      const paystackCurrency = rawCurrency === 'GHC' ? 'GHS' : rawCurrency;
-
       init = await paystack.transaction.initialize({
         email: payment.buyerEmail,
         amount: amountPesewas,
-        currency: paystackCurrency,
+        currency: payment.pricing.currency,   // already normalized above
         reference,
         callback_url: `${process.env.FRONTEND_URL || 'https://mujtic.vercel.app'}/?payment_ref=${reference}`,
         channels: ['mobile_money', 'card'],
@@ -217,11 +215,13 @@ class PaymentService {
       throw new AppError('Payment amount mismatch', 400);
     }
 
-    // Currency sanity
-    if (data.currency && data.currency !== payment.pricing.currency) {
+    // Currency sanity. Backstop for any legacy Payment rows saved with the
+    // pre-2007 'GHC' code before initializeCharge started normalizing.
+    const expectedCurrency = payment.pricing.currency === 'GHC' ? 'GHS' : payment.pricing.currency;
+    if (data.currency && data.currency !== expectedCurrency) {
       await Payment.updateOne(
         { _id: payment._id },
-        { $set: { status: 'failed', failedReason: `Currency mismatch: expected ${payment.pricing.currency}, got ${data.currency}` } }
+        { $set: { status: 'failed', failedReason: `Currency mismatch: expected ${expectedCurrency}, got ${data.currency}` } }
       );
       throw new AppError('Payment currency mismatch', 400);
     }
