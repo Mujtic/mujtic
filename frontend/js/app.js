@@ -2437,7 +2437,7 @@ class MujticApp {
     statusEl.className = 'status-msg loading';
     statusEl.textContent = 'Redirecting to Paystack…';
     try {
-      const res = await this.fetchApi('/payments/initialize', '/tickets/purchase', {
+      const res = await this.fetchApi('/payments/initialize',  {
         method: 'POST',
         successMsg: false,
         body: JSON.stringify({
