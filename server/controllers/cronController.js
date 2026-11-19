@@ -1,5 +1,8 @@
+// controllers/cronController.js
 const userService = require('../services/userService');
+const paymentService = require('../services/paymentService');
 const Event = require('../models/Event');
+const Payment = require('../models/Payment');
 const logService = require('../services/logService');
 const { logger } = require('../config/logger');
 
@@ -87,5 +90,97 @@ exports.publishScheduledEvents = async (req, res, next) => {
   } catch (err) {
     logger.error('Scheduled event publish job crashed', { err: err.message, ...ctx(req) });
     next(err);
+  }
+};
+
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/cron/reconcile-payments
+// Safety net behind the Paystack webhook. Re-verifies payments that never
+// reached "fulfilled" (webhook missed, fulfilment crashed, buyer closed the tab
+// before returning) and creates the tickets if Paystack confirms they were paid.
+// Idempotent: verifyAndFulfill claims each payment atomically, so overlapping
+// runs, the webhook and the buyer's browser can never double-create tickets.
+// Triggered by: Render Cron Job every 5 minutes (via X-Cron-Secret) or an admin.
+// ─────────────────────────────────────────────────────────────
+const RECONCILE_MIN_AGE_MS     = 2 * 60 * 1000;           // give the webhook / redirect a head start
+const RECONCILE_PENDING_MAX_MS = 3 * 60 * 60 * 1000;      // unpaid checkouts: stop polling Paystack after 3h
+const RECONCILE_PAID_MAX_MS    = 3 * 24 * 60 * 60 * 1000; // paid but not fulfilled: this is real money, keep trying
+const RECONCILE_BATCH          = 25;                      // per group, per run
+const RECONCILE_CONCURRENCY    = 5;
+
+let reconcileRunning = false;                             // overlapping runs are harmless, but pointless
+
+async function inBatches(items, size, fn) {
+  for (let i = 0; i < items.length; i += size) {
+    await Promise.allSettled(items.slice(i, i + size).map(fn));
+  }
+}
+
+exports.reconcilePayments = async (req, res, next) => {
+  if (reconcileRunning) {
+    return res.json({ skipped: true, reason: 'previous run still in progress' });
+  }
+  reconcileRunning = true;
+
+  try {
+    const now = Date.now();
+    const olderThan = new Date(now - RECONCILE_MIN_AGE_MS);
+
+    // Paid but never fulfilled go first, so abandoned checkouts can't starve them.
+    const paidStuck = await Payment.find({
+      fulfilledAt: null,
+      status: 'success',
+      createdAt: { $gt: new Date(now - RECONCILE_PAID_MAX_MS), $lt: olderThan },
+    }).sort({ createdAt: 1 }).limit(RECONCILE_BATCH).select('reference').lean();
+
+    // Checkouts still waiting on Paystack (e.g. mobile money approval)
+    const pending = await Payment.find({
+      fulfilledAt: null,
+      status: 'pending',
+      createdAt: { $gt: new Date(now - RECONCILE_PENDING_MAX_MS), $lt: olderThan },
+    }).sort({ createdAt: -1 }).limit(RECONCILE_BATCH).select('reference').lean();
+
+    const refs = [...paidStuck, ...pending].map((p) => p.reference);
+    const tally = { checked: refs.length, fulfilled: 0, processing: 0, stillPending: 0, failed: 0, errors: 0 };
+
+    await inBatches(refs, RECONCILE_CONCURRENCY, async (reference) => {
+      try {
+        const r = await paymentService.verifyAndFulfill(reference);
+        if (r.status === 'success' && !r.alreadyFulfilled) tally.fulfilled++;
+        else if (r.status === 'processing') tally.processing++;
+        else if (r.status === 'pending')    tally.stillPending++;
+        else if (r.status === 'failed')     tally.failed++;
+      } catch (e) {
+        tally.errors++;
+        logger.error('Reconcile failed for payment', { reference, err: e.message });
+      }
+    });
+
+    if (tally.fulfilled > 0 || tally.errors > 0) {
+      logger.info('Payment reconcile finished', tally);
+    }
+
+    // Audit only when the job actually rescued something: a 5-minute no-op run isn't worth a row.
+    if (tally.fulfilled > 0) {
+      try {
+        const trigger = req.user?.email || 'cron-scheduler';
+        logService.audit(trigger, 'run_payment_reconcile', 'cron', {
+          type: 'event',
+          fulfilled: tally.fulfilled,
+          errors: tally.errors,
+          ...ctx(req),
+        });
+      } catch (auditErr) {
+        logger.error('Cron audit log failed (non-fatal)', { err: auditErr.message });
+      }
+    }
+
+    res.json(tally);
+  } catch (err) {
+    logger.error('Payment reconcile job crashed', { err: err.message, ...ctx(req) });
+    next(err);
+  } finally {
+    reconcileRunning = false;
   }
 };
