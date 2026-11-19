@@ -2464,9 +2464,9 @@ class MujticApp {
       return;
     }
 
-    // ── Paid ticket: Paystack ──
+    // ── Paid ticket: Paystack hosted checkout ──
     statusEl.className = 'status-msg loading';
-    statusEl.textContent = 'Starting secure payment…';
+    statusEl.textContent = 'Redirecting to Paystack…';
     try {
       const res = await this.fetchApi('/payments/initialize', {
         method: 'POST',
@@ -2483,7 +2483,7 @@ class MujticApp {
         }),
       });
 
-      // Context for the return page: the page reloads if we fall back to the redirect
+      // The page is about to be replaced, so keep what the return page needs
       try {
         sessionStorage.setItem('mujtic_pending_checkout', JSON.stringify({
           reference:  res.reference,
@@ -2496,8 +2496,6 @@ class MujticApp {
           buyerPhone: phone,
           savedAt:    Date.now(),
         }));
-        // Survives a closed tab, so the next visit can finish the order
-        localStorage.setItem('mujtic_pending_payment', JSON.stringify({ reference: res.reference, ts: Date.now() }));
         if (remind) {
           sessionStorage.setItem('mujtic_pending_reminder', JSON.stringify({
             eventId: this.selectedTicket.eventId,
@@ -2505,23 +2503,11 @@ class MujticApp {
             eventDate: this.lastPurchasedEvent?.date || '',
           }));
         }
+        // Optional: only used by recoverPendingPayment(). Delete together with that method if you skip it.
+        localStorage.setItem('mujtic_pending_payment', JSON.stringify({ reference: res.reference, ts: Date.now() }));
       } catch {}
 
-      // Popup: onSuccess fires by itself, with no redirect and no "I've completed payment" button
-      if (window.PaystackPop && res.accessCode) {
-        statusEl.textContent = 'Complete the payment in the secure window…';
-        const popup = new PaystackPop();
-        popup.resumeTransaction(res.accessCode, {
-          onSuccess: tx => this._verifyPaystackReturn((tx && tx.reference) || res.reference),
-          onCancel: () => {
-            statusEl.className = 'status-msg error';
-            statusEl.textContent = 'Payment window closed. If you already paid, your ticket will still arrive.';
-          },
-          onError: () => { window.location.href = res.authorizationUrl; },   // fall back to the hosted page
-        });
-        return;
-      }
-      window.location.href = res.authorizationUrl;                            // popup script blocked / unavailable
+      window.location.href = res.authorizationUrl;
     } catch (err) {
       statusEl.className = 'status-msg error';
       statusEl.textContent = err.message || 'Could not start payment.';
