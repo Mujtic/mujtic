@@ -233,70 +233,167 @@
         <p style="color:var(--muted); font-size:0.82rem;">Loading events…</p>
       </div>
     </div>
+    <div class="load-more-wrap">
+      <button type="button" class="btn btn-ghost" id="load-more-btn" style="display:none;"><i class="fas fa-rotate"></i> Load more events</button>
+    </div>
   </div>
+
+  <!-- Browse by category -->
+  <section class="hm-section" id="hm-categories">
+    <div class="hm-head">
+      <div class="hm-eyebrow">Explore</div>
+      <h2 class="hm-title">Browse by category</h2>
+      <p class="hm-sub">From concerts to workshops, jump straight to what you're in the mood for.</p>
+    </div>
+    <div class="hm-cats" id="hm-cats"></div>
+  </section>
+
+  <!-- How it works -->
+  <section class="hm-section" id="hm-how">
+    <div class="hm-head">
+      <div class="hm-eyebrow">How it works</div>
+      <h2 class="hm-title">From search to the gate in three steps</h2>
+    </div>
+    <div class="hm-steps">
+      <div class="hm-step"><span class="hm-step-n">01</span><h3>Find your event</h3><p>Search or filter by category and city, then open the event page for details, photos and ticket types.</p></div>
+      <div class="hm-step"><span class="hm-step-n">02</span><h3>Pay your way</h3><p>Pay with Mobile Money or card. Apply a promo code if you have one and see the full price before you pay.</p></div>
+      <div class="hm-step"><span class="hm-step-n">03</span><h3>Show your QR</h3><p>Your ticket is ready instantly. Download the PDF, add the date to your calendar and scan in at the gate.</p></div>
+    </div>
+  </section>
+
+  <!-- Popular cities -->
+  <section class="hm-section" id="hm-cities-section">
+    <div class="hm-head">
+      <div class="hm-eyebrow">Near you</div>
+      <h2 class="hm-title">Popular places</h2>
+    </div>
+    <div class="hm-cities" id="hm-cities"></div>
+  </section>
+
+  <!-- Host CTA -->
+  <section class="hm-section" id="hm-host">
+    <div class="hm-cta">
+      <div>
+        <div class="hm-eyebrow">For organisers</div>
+        <h2 class="hm-title">Hosting an event? Sell tickets in minutes.</h2>
+        <p class="hm-sub">Create your event, set ticket types and early-bird pricing, add gate staff and track sales live from one dashboard.</p>
+      </div>
+      <div class="hm-cta-actions">
+        <button class="btn btn-primary" onclick="app.startHosting()"><i class="fas fa-plus"></i> Host an event</button>
+        <button class="btn btn-ghost" onclick="app.showSection('about-page')">Learn more</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Why Mujtic -->
+  <section class="hm-section" id="hm-why">
+    <div class="hm-head">
+      <div class="hm-eyebrow">Why Mujtic</div>
+      <h2 class="hm-title">Built so nobody gets stuck at the gate</h2>
+    </div>
+    <div class="hm-why">
+      <div class="hm-why-card"><i class="fas fa-mobile-screen-button"></i><h4>Mobile Money first</h4><p>Pay the way you already do, with MoMo or card.</p></div>
+      <div class="hm-why-card"><i class="fas fa-qrcode"></i><h4>Unique QR tickets</h4><p>Every ticket has its own code that can only be scanned once.</p></div>
+      <div class="hm-why-card"><i class="fas fa-rotate-left"></i><h4>Refund protection</h4><p>If an organiser cancels, you're refunded automatically in full.</p></div>
+      <div class="hm-why-card"><i class="fas fa-headset"></i><h4>Real support</h4><p>Message us from the Help Center. We reply within 2–4 hours.</p></div>
+    </div>
+  </section>
 </div>
+
 
 <!-- ===== ABOUT PAGE ===== -->
 <section class="section" id="about-page" style="padding-top:calc(64px + 2.5rem);">
-  <div class="about-wrap">
-    <div class="about-hero">
-      <div class="about-hero-content">
-        <div class="hero-badge" style="margin:0 auto 1.5rem;"><span>Our Story</span></div>
-        <h1 class="about-title">Built for Ghana's <span style="color:var(--teal);">Vibrant</span> Event Scene</h1>
-        <p class="about-subtitle">Mujtic connects event creators with audiences across Ghana — from Accra's music festivals to Kumasi's cultural celebrations.</p>
+  <div class="ab">
+
+    <header class="ab-hero">
+      <div class="ab-hero-copy">
+        <div class="hero-badge"><span>About Mujtic</span></div>
+        <h1 class="ab-title">Tickets that work the way <span class="ab-hl">Ghana pays.</span></h1>
+        <p class="ab-lead">Mujtic is an event ticketing platform built in Ghana, for Ghana. Mobile Money at checkout, QR tickets on any phone, gate check-in for your team and payouts you can follow.</p>
+        <div class="ab-cta">
+          <button class="btn btn-primary" onclick="app.showSection('home')"><i class="fas fa-calendar-alt"></i> Browse events</button>
+          <button class="btn btn-ghost" onclick="app.startHosting()"><i class="fas fa-plus"></i> Host an event</button>
+        </div>
       </div>
+      <div class="ab-hero-art" aria-hidden="true">
+        <div class="ab-ticket">
+          <div class="ab-ticket-main">
+            <span class="ab-tag">VIP · Admit one</span>
+            <h3>Accra Nights Live</h3>
+            <p><i class="fas fa-calendar-alt"></i> Sat · 8:00 PM</p>
+            <p><i class="fas fa-location-dot"></i> Accra, Ghana</p>
+          </div>
+          <div class="ab-ticket-stub"><div class="ab-qr"></div><span>MJT-4F2A91</span></div>
+        </div>
+        <div class="ab-chip ab-chip-1"><i class="fas fa-mobile-screen"></i> Paid with MoMo</div>
+        <div class="ab-chip ab-chip-2"><i class="fas fa-circle-check"></i> Checked in</div>
+      </div>
+    </header>
+
+    <div class="ab-stats">
+      <div><span class="ab-stat-n">12,000+</span><span class="ab-stat-l">Events hosted</span></div>
+      <div><span class="ab-stat-n">50,000+</span><span class="ab-stat-l">Tickets sold</span></div>
+      <div><span class="ab-stat-n">₵2M+</span><span class="ab-stat-l">Paid to organisers</span></div>
+      <div><span class="ab-stat-n">10+</span><span class="ab-stat-l">Cities served</span></div>
     </div>
 
-    <div class="about-story">
-      <div class="about-story-text">
-        <div class="about-eyebrow">Where we started</div>
-        <h2>Ghana's events deserve better than screenshots and cash at the gate.</h2>
-        <p>Mujtic began with a simple frustration: brilliant events were being held back by clumsy ticketing. Tickets were photocopied, payments were chased through scattered chats, and organisers waited days to see their money.</p>
-        <p>We built Mujtic around how Ghana actually pays and plans: Mobile Money first, QR tickets that work on any phone, and payouts that are fast and transparent. No hidden steps, no guesswork.</p>
-        <p>Today, organisers sell tickets, manage gate staff, validate entry in real time and track revenue from a single dashboard, while attendees get a ticket they can trust in seconds.</p>
-        <div class="story-quote">“If an event is worth hosting, it should be effortless to sell out.”</div>
+    <section>
+      <div class="ab-head"><div class="hm-eyebrow">The problem we saw</div>
+        <h2 class="ab-h2">Great events were held back by clumsy ticketing.</h2>
+        <p class="ab-sub">Photocopied tickets, payments chased through chat groups, organisers waiting days to see their money. We built Mujtic so selling out feels effortless, and so the person at the gate always knows a ticket is real.</p>
       </div>
-      <ol class="story-timeline">
-        <li class="story-step"><div class="story-step-label">Chapter 01</div><h4>The problem</h4><p>Fake tickets, delayed payouts and no visibility for organisers, especially smaller promoters and campus events.</p></li>
-        <li class="story-step"><div class="story-step-label">Chapter 02</div><h4>The build</h4><p>A platform designed mobile-first, with MoMo and card payments, QR validation and staff tools from day one.</p></li>
-        <li class="story-step"><div class="story-step-label">Chapter 03</div><h4>The launch</h4><p>Opened to organisers across Accra, then Kumasi, Takoradi, Cape Coast, Tamale and beyond.</p></li>
-        <li class="story-step"><div class="story-step-label">Chapter 04</div><h4>Today</h4><p>Thousands of events, a growing community, and a roadmap shaped by the organisers who use Mujtic every week.</p></li>
-      </ol>
-    </div>
+    </section>
 
-  <div class="about-grid">
-    <div class="about-card">
-      <div class="about-card-icon"><i class="fas fa-rocket"></i></div>
-      <h3>Our Mission</h3>
-      <p>Democratize event creation and ticketing for every organizer in Ghana — from students running campus shows to established concert promoters.</p>
+    <section>
+      <div class="ab-head"><div class="hm-eyebrow">How it works</div><h2 class="ab-h2">One platform, both sides of the gate</h2></div>
+      <div class="ab-tracks">
+        <div class="ab-track">
+          <h3><i class="fas fa-ticket-alt"></i> For attendees</h3>
+          <ol>
+            <li><b>Discover.</b> Filter by category or city and open any event page.</li>
+            <li><b>Pay.</b> Mobile Money or card, with promo codes and group discounts.</li>
+            <li><b>Get in.</b> Download your QR ticket, transfer it to a friend or request a refund if you can't go.</li>
+          </ol>
+        </div>
+        <div class="ab-track">
+          <h3><i class="fas fa-gauge-high"></i> For organisers</h3>
+          <ol>
+            <li><b>Create.</b> Add ticket types, early-bird pricing, terms and conditions. Save a draft or publish.</li>
+            <li><b>Sell &amp; scan.</b> Add gate staff who check tickets in, and track sales live.</li>
+            <li><b>Get paid.</b> Request payouts to MoMo, bank or PayPal and see exactly what was deducted.</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="ab-head"><div class="hm-eyebrow">What's inside</div><h2 class="ab-h2">Everything an event needs</h2></div>
+      <div class="ab-features">
+        <div class="ab-feat"><i class="fas fa-mobile-screen-button"></i><h3>Mobile Money first</h3><p>Checkout built around how Ghana pays, with card as a backup.</p></div>
+        <div class="ab-feat"><i class="fas fa-qrcode"></i><h3>QR tickets</h3><p>Unique codes that work on any phone and can't be scanned twice.</p></div>
+        <div class="ab-feat"><i class="fas fa-users-gear"></i><h3>Gate staff &amp; check-in</h3><p>Assign staff per event and keep a full log of every scan.</p></div>
+        <div class="ab-feat"><i class="fas fa-tags"></i><h3>Pricing tools</h3><p>Early-bird prices, group discounts and coupon codes you control.</p></div>
+        <div class="ab-feat"><i class="fas fa-hourglass-half"></i><h3>Waitlists</h3><p>Sold out? Fans join the waitlist and get notified when tickets free up.</p></div>
+        <div class="ab-feat"><i class="fas fa-rotate-left"></i><h3>Fair refunds</h3><p>Automatic full refunds when an event is cancelled. Clear rules otherwise.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="ab-head"><div class="hm-eyebrow">What we believe</div><h2 class="ab-h2">Three rules we build by</h2></div>
+      <div class="ab-values">
+        <div><span>01</span><h3>Simple by default</h3><p>If a feature needs a manual, we haven't finished building it.</p></div>
+        <div><span>02</span><h3>Money should be transparent</h3><p>Fees are shown before you pay and deductions are visible to organisers.</p></div>
+        <div><span>03</span><h3>Built for here</h3><p>Local payments, local cities, and support from people who understand the context.</p></div>
+      </div>
+    </section>
+
+    <blockquote class="ab-quote">“If an event is worth hosting, it should be effortless to sell out.”</blockquote>
+
+    <div class="about-contact-cta">
+      <h2>Ready to create your event?</h2>
+      <p>Join the organisers already selling tickets on Mujtic.</p>
+      <button class="btn btn-primary" onclick="app.startHosting()"><i class="fas fa-plus"></i> Get started free</button>
     </div>
-    <div class="about-card">
-      <div class="about-card-icon"><i class="fas fa-shield-alt"></i></div>
-      <h3>Secure Payments</h3>
-      <p>Every transaction is encrypted and protected. Organizers receive instant payouts via MoMo, bank transfer, or PayPal — guaranteed.</p>
-    </div>
-    <div class="about-card">
-      <div class="about-card-icon"><i class="fas fa-users"></i></div>
-      <h3>Community First</h3>
-      <p>We believe in building Ghana's cultural economy by empowering local artists, venues, and communities through technology.</p>
-    </div>
-    <div class="about-card">
-      <div class="about-card-icon"><i class="fas fa-mobile-alt"></i></div>
-      <h3>Mobile-First</h3>
-      <p>Designed for Ghana's mobile internet users — works flawlessly on any device, anywhere in the country.</p>
-    </div>
-  </div>
-  <div class="about-stats-row">
-    <div class="about-stat"><span class="about-stat-num">12,000+</span><span class="about-stat-label">Events Hosted</span></div>
-    <div class="about-stat"><span class="about-stat-num">₵2M+</span><span class="about-stat-label">Paid to Organizers</span></div>
-    <div class="about-stat"><span class="about-stat-num">50,000+</span><span class="about-stat-label">Tickets Sold</span></div>
-    <div class="about-stat"><span class="about-stat-num">10+</span><span class="about-stat-label">Cities Served</span></div>
-  </div>
-  <div class="about-contact-cta">
-    <h2>Ready to create your event?</h2>
-    <p>Join thousands of organizers already using Mujtic.</p>
-    <button class="btn btn-primary" onclick="app.openModal('auth-modal')"><i class="fas fa-plus"></i> Get Started Free</button>
-  </div>
   </div>
 </section>
 
@@ -681,8 +778,8 @@
     <div class="report-section-title"><i class="fas fa-trophy"></i> Top Events by Revenue</div>
     <div class="data-table-wrap">
       <table class="data-table">
-        <thead><tr><th>Event</th><th>Date</th><th>Tickets Sold</th><th>Revenue</th><th>Status</th></tr></thead>
-        <tbody id="report-events-tbody"><tr><td colspan="5" class="table-empty">Loading…</td></tr></tbody>
+        <thead><tr><th>Event</th><th>Date</th><th>Tickets Sold</th><th>Total Revenue</th><th>Net Revenue</th><th>Status</th></tr></thead>
+        <tbody id="report-events-tbody"><tr><td colspan="6" class="table-empty">Loading…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -842,7 +939,12 @@
         <div class="price-row fee-row" id="fee-row" style="display:none;"><span>Service fee</span><span id="price-fee">₵0</span></div>
         <div class="price-row total-row"><span><strong>Total</strong></span><span id="price-total" style="color:var(--teal); font-weight:700;">₵0</span></div>
       </div>
-      <div id="card-element" style="display:none; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:1rem; margin-bottom:0.75rem; font-size:0.82rem; color:var(--muted);">Stripe card element</div>
+
+      <div id="terms-agree-row" class="terms-agree" style="display:none;">
+        <label class="checkbox-row terms-row"><input type="checkbox" id="terms-agree"><span>I agree to this event's terms &amp; conditions</span></label>
+        <details class="ep-terms"><summary>Read the terms</summary><div id="terms-agree-body" class="md-body"></div></details>
+        <span class="field-error" id="terms-agree-err"></span>
+      </div>
       <label class="checkbox-row" style="margin-bottom:1rem;"><input type="checkbox" id="set-reminder"> Set reminder (SMS / Email)</label>
       <button class="btn btn-primary btn-block" id="pay-btn">Complete Purchase</button>
       <div id="payment-status" class="status-msg" style="display:none;"></div>
@@ -1400,6 +1502,11 @@
         </div>
       </div>
       <div class="form-field"><label class="form-label">Description</label><textarea id="event-desc" placeholder="Tell attendees what makes this special…" class="input" rows="3" required></textarea></div>
+      <div class="form-field">
+        <label class="form-label"><i class="fas fa-file-contract"></i> Terms &amp; Conditions (optional)</label>
+        <textarea id="event-terms" class="input" rows="4" maxlength="5000" placeholder="Age limits, refund rules, dress code, prohibited items…"></textarea>
+        <p style="font-size:0.73rem; color:var(--muted); margin-top:0.3rem;">Shown on the event page. Buyers must accept them before paying.</p>
+      </div>
       <div class="form-row">
         <div class="form-field"><label class="form-label">Event Date & Time</label><input type="datetime-local" id="event-date" class="input" required></div>
         <div class="form-field"><label class="form-label">Venue Name</label><input type="text" id="event-venue" placeholder="Venue" class="input" required></div>
@@ -1487,7 +1594,10 @@
         <div id="ticket-types-form"></div>
         <button type="button" class="btn btn-ghost" id="add-ticket-type" style="margin-top:0.6rem; font-size:0.8rem;"><i class="fas fa-plus"></i> Add Ticket Type</button>
       </div>
-      <button type="submit" class="btn btn-primary btn-block" style="margin-top:0.5rem;"><i class="fas fa-cloud-upload-alt"></i> Publish Event</button>
+      <div class="form-actions-split">
+        <button type="button" class="btn btn-ghost" id="save-draft-btn"><i class="fas fa-floppy-disk"></i> Save as Draft</button>
+        <button type="submit" class="btn btn-primary" id="event-publish-btn"><i class="fas fa-cloud-upload-alt"></i> Publish Event</button>
+      </div>
     </form>
   </div>
 </div>
@@ -1874,6 +1984,7 @@
 
 <script src="js/config.js"></script>
 <script src="js/security.js"></script>
+<script src="js/editor-toolbar.js"></script>
 <script src="js/app.js"></script>
 <script src="js/loader.js"></script>
 <script src="js/ticket-pdf.js"></script>

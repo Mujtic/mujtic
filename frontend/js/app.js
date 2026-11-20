@@ -597,6 +597,7 @@ class MujticApp {
       this._verifyPaystackReturn(paymentRef);   // no await — let it run async
     }
     this.bindEvents();
+    this.renderHomeExtras();
     this.initPasswordToggles();
     this.bindNavLinks();
     this.setupMobileMenu();
@@ -614,16 +615,7 @@ class MujticApp {
     this.initBackToTop();
   }
 
-  setupInfiniteScroll() {
-    window.addEventListener('scroll', () => {
-      const home = document.getElementById('home-section');
-      if (!home || home.style.display === 'none') return;
-      if (this.isLoadingEvents || !this.hasMoreEvents) return;
-      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
-        this.renderEvents(false);
-      }
-    }, { passive: true });
-  }
+  setupInfiniteScroll() { /* replaced by the "Load more events" button */ }
 
   bindNavLinks() {
     const on = (id, fn) => {
@@ -1353,6 +1345,58 @@ class MujticApp {
   }
 
 
+  // ─── Homepage extras ──────────────────────────────────────
+  renderHomeExtras() {
+    const cats = document.getElementById('hm-cats');
+    if (cats) {
+      const slugs = ['music', 'food', 'arts', 'sports', 'business', 'nightlife', 'family', 'workshops', 'community', 'free'];
+      cats.innerHTML = slugs.map(s =>
+        `<button type="button" class="hm-cat" data-home-cat="${s}">
+           <span class="hm-cat-ico"><i class="fas ${this.getCategoryIcon(s)}"></i></span>
+           <span>${esc(this.getCategoryName(s))}</span>
+         </button>`).join('');
+      cats.addEventListener('click', e => {
+        const b = e.target.closest('[data-home-cat]');
+        if (b) this._applyHomeFilter({ category: b.dataset.homeCat });
+      });
+    }
+    const cities = document.getElementById('hm-cities');
+    if (cities) {
+      const sel = document.getElementById('location-filter');
+      const want = ['osu', 'east-legon', 'accra-central', 'tema', 'kumasi', 'takoradi', 'cape-coast', 'tamale', 'aburi', 'akosombo'];
+      cities.innerHTML = want.map(v => {
+        const o = sel && [...sel.options].find(x => x.value === v);
+        return o ? `<button type="button" class="hm-city" data-home-city="${esc(v)}"><i class="fas fa-location-dot"></i> ${esc(o.textContent.trim())}</button>` : '';
+      }).join('');
+      cities.addEventListener('click', e => {
+        const b = e.target.closest('[data-home-city]');
+        if (b) this._applyHomeFilter({ location: b.dataset.homeCity });
+      });
+    }
+  }
+
+  _applyHomeFilter({ category, location }) {
+    const c = document.getElementById('category-filter');
+    const l = document.getElementById('location-filter');
+    if (category !== undefined && c) c.value = category;
+    if (location !== undefined && l) l.value = location;
+    this.currentEventsPage = 1; this.hasMoreEvents = true;
+    this.renderEvents(true);
+    document.getElementById('home')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  startHosting() {
+    if (!this.currentUser) {
+      if (document.getElementById('auth-title').textContent === 'Sign In') this.toggleAuthMode();
+      this.openModal('auth-modal');
+      this.showInfo('Create an account and tick "I\'m an event organiser" to host events.');
+    } else if (this.currentUser.isOrganizer) {
+      this.showEventForm();
+    } else {
+      this.showWarning('This is an attendee account. Create an organiser account to host events.');
+    }
+  }
+
 
   // ─── DASHBOARD ────────────────────────────────────────────
   async renderDashboardFromData() {
@@ -1895,7 +1939,12 @@ class MujticApp {
       console.error(err);
       if (reset) grid.innerHTML = '<div class="empty-state">Failed to load events. Please try again.</div>';
       else { const l = document.getElementById('scroll-loader'); if (l) l.remove(); }
-    } finally { this.isLoadingEvents = false; }
+    } finally { this.isLoadingEvents = false; this._toggleLoadMore(); }
+  }
+
+  _toggleLoadMore() {
+    const b = document.getElementById('load-more-btn');
+    if (b) b.style.display = (this.hasMoreEvents && this.events.length) ? 'inline-flex' : 'none';
   }
 
   renderEventCard(event) {
@@ -2070,6 +2119,9 @@ class MujticApp {
       const icon = this.getCategoryIcon(event.category);
       const cat  = this.getCategoryName(event.category);
       const img  = this.getFullImageUrl(event.image);
+      const fmt = t => window.MujticEditor ? MujticEditor.render(t) : `<p>${esc(t)}</p>`;
+      const isOwner = !!(this.currentUser?.isOrganizer &&
+        String(event.organizerId?._id || event.organizerId) === String(this.currentUser.id));
 
       let locationHtml = `${esc(event.venue)}, ${esc(event.location || 'Ghana')}`;
       const lat = Number(event.lat), lng = Number(event.lng);
@@ -2080,6 +2132,8 @@ class MujticApp {
       let ticketsHtml;
       if (event.isCancelled) {
         ticketsHtml = '<div class="ep-notice"><i class="fas fa-ban"></i> This event has been cancelled. Ticket holders are being refunded.</div>';
+      } else if (event.isPublished === false) {
+        ticketsHtml = '<div class="ep-notice"><i class="fas fa-eye-slash"></i> This event is a draft and isn\'t on sale yet.</div>';
       } else if (new Date(event.date) < this.currentDate) {
         ticketsHtml = '<div class="ep-notice"><i class="fas fa-clock"></i> This event has already taken place.</div>';
       } else {
@@ -2134,9 +2188,11 @@ class MujticApp {
             <div class="ep-actions">
               <button class="btn btn-ghost" onclick="app.shareEvent()"><i class="fas fa-share-alt"></i> Share</button>
               <button class="btn btn-ghost" onclick="app.copyEventLink()"><i class="fas fa-link"></i> Copy link</button>
+               ${isOwner ? `<button class="btn btn-ghost" data-ui-action="event-coupons" data-event-id="${esc(event._id)}"><i class="fas fa-tag"></i> Coupons</button>` : ''}
             </div>
-            <h3 class="ep-h">About this event</h3>
-            <p class="ep-desc">${esc(event.description)}</p>
+             <h3 class="ep-h">About this event</h3>
+            <div class="ep-desc md-body">${fmt(event.description)}</div>
+            ${event.terms ? `<details class="ep-terms"><summary><i class="fas fa-file-contract"></i> Terms &amp; conditions</summary><div class="md-body">${fmt(event.terms)}</div></details>` : ''}
           </div>
           <aside class="ep-side">
             <div class="ep-ticket-card">
@@ -2156,8 +2212,7 @@ class MujticApp {
       // Tab title + social meta (note: crawlers don't run JS)
       document.title = `${event.title} — Mujtic`;
       this._setMeta('og:title', event.title);
-      this._setMeta('og:description', (event.description || '').slice(0, 160));
-      this._setMeta('og:image', img);
+      this._setMeta('og:description', (window.MujticEditor ? MujticEditor.plain(event.description) : event.description || '').slice(0, 160));      this._setMeta('og:image', img);
       this._setMeta('og:url', this.getEventUrl(id));
     } catch (err) {
       if (this.currentEventId !== id) return;
@@ -2332,6 +2387,14 @@ class MujticApp {
     if (!this.selectedTicket) return;
     const event    = await this.fetchApi(`/events/${this.selectedTicket.eventId}`);
     this.lastPurchasedEvent = event;
+    const termsRow = document.getElementById('terms-agree-row');
+    if (termsRow) {
+      const has = !!(event.terms && event.terms.trim());
+      termsRow.style.display = has ? 'block' : 'none';
+      document.getElementById('terms-agree').checked = false;
+      document.getElementById('terms-agree-body').innerHTML = (has && window.MujticEditor) ? MujticEditor.render(event.terms) : '';
+      this.clearFieldErrors('terms-agree-err');
+    }
     const benefits  = this.getTicketBenefits(this.selectedTicket.type);
     const sym       = this.getCurrencySymbol(event.currency);
     const isEB      = this.isEarlyBird(event, this.selectedTicket.type);
@@ -2406,7 +2469,8 @@ class MujticApp {
     const companyName    = document.getElementById('company-name')?.value.trim() || '';
     const billingAddress = document.getElementById('billing-address')?.value.trim() || '';
 
-    this.clearFieldErrors('payer-name-err', 'payer-email-err', 'payer-phone-err');
+    this.clearFieldErrors('payer-name-err', 'payer-email-err', 'payer-phone-err', 'terms-agree-row');
+
     let valid = true;
     if (!this.currentUser) {
       if (!buyerName)                { this.setFieldError('payer-name', 'payer-name-err', 'Name is required'); valid = false; }
@@ -2416,6 +2480,11 @@ class MujticApp {
     else if (!this.validateEmail(email)) { this.setFieldError('payer-email', 'payer-email-err', 'Invalid email format'); valid = false; }
     if (!phone)                          { this.setFieldError('payer-phone', 'payer-phone-err', 'Phone is required'); valid = false; }
     else if (!this.validatePhone(phone)) { this.setFieldError('payer-phone', 'payer-phone-err', 'Use format: +233xxxxxxxxx'); valid = false; }
+    const termsShown = document.getElementById('terms-agree-row')?.style.display !== 'none';
+    if (termsShown && !document.getElementById('terms-agree').checked) {
+      this.setFieldError('terms-agree', 'terms-agree-err', 'Please accept the event terms to continue');
+      valid = false;
+    }
     if (!valid) return;
 
     const statusEl = document.getElementById('payment-status');
@@ -3082,8 +3151,8 @@ class MujticApp {
       tbody.innerHTML = sorted.slice(0, 10).map(e => {
         const pe = s?.perEvent?.[e._id];
         const badge = e.isCancelled ? '<span class="status-pill failed">Cancelled</span>' : e.isPublished ? '<span class="status-pill completed">Published</span>' : '<span class="status-pill pending">Draft</span>';
-        return `<tr><td style="font-weight:600; color:var(--bright);">${esc(e.title)}</td><td>${new Date(e.date).toLocaleDateString('en-GB')}</td><td>${pe ? pe.sold : '—'}</td><td style="color:var(--teal); font-family:'JetBrains Mono',monospace;">${pe ? money(pe.revenue) : '—'}</td><td>${badge}</td></tr>`;
-      }).join('') || '<tr><td colspan="5" class="table-empty">No events yet</td></tr>';
+        return `<tr><td style="font-weight:600; color:var(--bright);">${esc(e.title)}</td><td>${new Date(e.date).toLocaleDateString('en-GB')}</td><td>${pe ? pe.sold : '—'}</td><td style="color:var(--teal); font-family:'JetBrains Mono',monospace;">${pe ? money(pe.revenue) : '—'}</td><td style="color:var(--mint); font-family:'JetBrains Mono',monospace;">${pe ? money(pe.net) : '—'}</td><td>${badge}</td></tr>`;
+      }).join('') || '<tr><td colspan="6" class="table-empty">No events yet</td></tr>';
     }
 
     let salesData = { labels: [], tickets: [], revenue: [] };
@@ -3121,6 +3190,15 @@ class MujticApp {
     this.editingEvent = event;
     document.getElementById('event-form').reset();
     document.getElementById('form-title').textContent = event ? 'Edit Event' : 'Create Event';
+    const _draftBtn = document.getElementById('save-draft-btn');
+    const _pubBtn   = document.getElementById('event-publish-btn');
+    const _isLive   = !!(event && event.isPublished);
+    if (_draftBtn) _draftBtn.style.display = _isLive ? 'none' : '';
+    if (_pubBtn) _pubBtn.innerHTML = _isLive
+
+      ? '<i class="fas fa-floppy-disk"></i> Save Changes'
+      : '<i class="fas fa-cloud-upload-alt"></i> Publish Event';
+    ['event-desc', 'event-terms'].forEach(id => window.MujticEditor && MujticEditor.sync(document.getElementById(id)));
 
     // Reset the image upload label + preview. form.reset() clears the file
     // input but leaves these DOM nodes unchanged, so a leftover preview from
@@ -3152,6 +3230,7 @@ class MujticApp {
     if (event) {
       document.getElementById('event-title').value     = event.title;
       document.getElementById('event-desc').value      = event.description;
+      document.getElementById('event-terms').value = event.terms || '';
       // Convert ISO UTC → local "YYYY-MM-DDTHH:MM" so the datetime-local input
       // shows the correct time. slice(0,16) worked only because Ghana is UTC+0.
       document.getElementById('event-date').value      = this._toLocalInput(event.date);
@@ -3226,7 +3305,7 @@ class MujticApp {
       <button type="button" class="remove-ticket" aria-label="Remove ticket type">✕</button>`;
     container.appendChild(div);
   }
-  async saveEvent() {
+  async saveEvent(status= 'publish') {
     const title    = document.getElementById('event-title').value.trim();
     const orgEmail = document.getElementById('organizer-email').value.trim();
     const orgPhone = document.getElementById('organizer-phone').value.trim();
@@ -3267,8 +3346,11 @@ class MujticApp {
     formData.append('organizerEmail', orgEmail);
     formData.append('organizerPhone', orgPhone);
     formData.append('ticketTypes',    JSON.stringify(ticketTypes));
+    const draft = status === 'draft';
+    formData.append('status', status);
+    formData.append('terms', document.getElementById('event-terms')?.value || '');
     const publishAt = (document.getElementById('event-publish-at') || {}).value;
-    if (publishAt) formData.append('publishAt', publishAt);
+    if (publishAt && !draft) formData.append('publishAt', publishAt);
     const lat = (document.getElementById('event-lat') || {}).value;
     const lng = (document.getElementById('event-lng') || {}).value;
     const addr = (document.getElementById('event-address') || {}).value;
@@ -3278,10 +3360,17 @@ class MujticApp {
     const imgFile = document.getElementById('event-image').files[0];
     if (imgFile) formData.append('image', imgFile);
     try {
-      if (this.editingEvent) { await this.fetchApi(`/events/${this.editingEvent._id}`, { method: 'PUT', body: formData }); }
-      else { await this.fetchApi('/events', { method: 'POST', body: formData }); }
+      const opts = { body: formData, successMsg: draft ? 'Draft saved. Find it under My Events' : undefined };
+      if (this.editingEvent) await this.fetchApi(`/events/${this.editingEvent._id}`, { method: 'PUT', ...opts });
+      else await this.fetchApi('/events', { method: 'POST', ...opts });
       await this.loadAllData();
-      this.closeAllModals(); this.showSection('dashboard');
+      this.closeAllModals();
+      if (draft) {
+        const f = document.getElementById('event-status-filter'); if (f) f.value = 'draft';
+        this.showSection('myevents-page');
+      } else {
+        this.showSection('dashboard');
+      }
     } catch (err) { this.showError(err.message); }
   }
 
@@ -3545,12 +3634,14 @@ class MujticApp {
     if (c) c.innerHTML = '<option value="">All my events</option>' + opts;
   }
 
-  async openCouponsModal() {
+  async openCouponsModal(eventId = null) {
     this._reopenAfter = null;
+    this._couponCtx = eventId || null;
     if (!this.dataLoaded) await this.loadAllData();
     ['coupon-search'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     ['coupon-status-filter', 'coupon-type-filter', 'coupon-event-filter'].forEach(id => { const el = document.getElementById(id); if (el) el.value = 'all'; });
     this._fillCouponEventSelects();
+    if (eventId) { const f = document.getElementById('coupon-event-filter'); if (f) f.value = eventId; }
     this.openModal('coupons-modal');
     await this.loadCoupons();
   }
@@ -3624,7 +3715,7 @@ class MujticApp {
     this._fillCouponEventSelects();
     ['coupon-code', 'coupon-value', 'coupon-expiry', 'coupon-limit'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     const t = document.getElementById('coupon-type');  if (t) t.value = 'percentage';
-    const e = document.getElementById('coupon-event'); if (e) e.value = '';
+    const e = document.getElementById('coupon-event'); if (e) e.value = this._couponCtx || '';
     const s = document.getElementById('coupon-create-status'); if (s) s.style.display = 'none';
     this._reopenAfter = 'coupons-modal';          // closing the form returns to the list
     this.openModal('coupon-create-modal');
@@ -4119,6 +4210,15 @@ class MujticApp {
     this.on('confirm-ok-btn',     'click', () => this._settleConfirm(true));
     this.on('confirm-cancel-btn', 'click', () => this._settleConfirm(false));
     this.on('confirm-backdrop',   'click', () => this._settleConfirm(false));
+    this.on('event-form', 'submit', e => { e.preventDefault(); this.saveEvent('publish'); });
+    this.on('save-draft-btn', 'click', () => {
+      const f = document.getElementById('event-form');
+      if (f.reportValidity()) this.saveEvent('draft');
+    });
+    this.on('load-more-btn', 'click', () => this.renderEvents(false));
+
+    // Formatting toolbar (js/editor-toolbar.js)
+    if (window.MujticEditor) ['event-desc', 'event-terms'].forEach(id => MujticEditor.attach(document.getElementById(id)));
     document.getElementById('confirm-dialog')?.addEventListener('keydown', e => {
       if (e.key !== 'Tab') return;
       const f = [...e.currentTarget.querySelectorAll('button, textarea')].filter(el => el.offsetParent !== null);
@@ -4177,6 +4277,7 @@ class MujticApp {
           case 'staff-toggle':    this._toggleStaffStatus(d.id, d.activate === 'true'); break;
           case 'staff-delete':    this._deleteStaff(d.id); break;
           case 'coupon-delete':   this.deleteCoupon(d.id); break;
+          case 'event-coupons':   this.openCouponsModal(d.eventId); break;
         }
       }
 

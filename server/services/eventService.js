@@ -19,13 +19,15 @@ const ORGANIZER_WRITABLE_FIELDS = [
   'title', 'description', 'venue', 'date', 'category', 'currency',
   'organizerEmail', 'organizerPhone', 'ticketTypes',
   // Optional
-  'location', 'address', 'lat', 'lng', 'publishAt',
+  'location', 'address', 'lat', 'lng', 'publishAt','terms',
   // Per-event override for who pays the platform fee
   'feePaidBy',
 ];
 
 const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
+// description / terms are plain text with light markdown; clamp the length.
+// They are HTML-escaped when rendered, never trusted as markup.
+const cleanText = (v, max) => String(v ?? '').replace(/\u0000/g, '').trim().slice(0, max);
 const pick = (obj, keys) => {
   const out = {};
   for (const k of keys) if (obj[k] !== undefined) out[k] = obj[k];
@@ -71,34 +73,24 @@ class EventService {
       }
     }
 
-    // publishAt: if set to a future time, create as draft. The scheduler in
-    // services/scheduler.js flips isPublished → true when publishAt arrives.
+    if (clean.description !== undefined) clean.description = cleanText(clean.description, 10000);
+    if (!clean.description) throw new AppError('Description is required', 400);
+    if (clean.terms !== undefined) clean.terms = cleanText(clean.terms, 5000);
+
+    // status: 'draft' saves privately; anything else publishes (or schedules)
+    const isDraft = eventData.status === 'draft';
     let publishAt = null;
-    let isPublished = true;
-    if (clean.publishAt !== undefined) {
-      if (clean.publishAt === null || clean.publishAt === '') {
-        clean.publishAt = null;
-        // Clearing the schedule: leave isPublished alone. If the event is
-        // already live, it stays live. If it's still a draft, the organizer
-        // can publish manually via togglePublish. Auto-publishing a draft
-        // because the user cleared the schedule would be surprising.
-      } else {
-        const parsed = new Date(clean.publishAt);
-        if (isNaN(parsed)) throw new AppError('Invalid publish date', 400);
-        if (parsed > new Date()) {
-          // Future schedule → force draft. The cron job publishes it when
-          // the time arrives. This also un-publishes a live event if the
-          // organizer schedules it, which matches intent.
-          clean.publishAt = parsed;
-          clean.isPublished = false;
-        } else {
-          // Past publishAt submitted — treat as "publish now" and drop the
-          // dead timestamp so the scheduler never queries it.
-          clean.publishAt = null;
-          clean.isPublished = true;
-        }
+    let isPublished = !isDraft;
+
+    if (!isDraft && clean.publishAt) {
+      const parsed = new Date(clean.publishAt);
+      if (isNaN(parsed)) throw new AppError('Invalid publish date', 400);
+      if (parsed > new Date()) {          // future schedule → stays hidden until the scheduler publishes it
+        publishAt = parsed;
+        isPublished = false;
       }
     }
+    delete clean.publishAt;               // explicit values below win
 
     const event = new Event({
       ...clean,
@@ -154,6 +146,12 @@ class EventService {
       }
     }
 
+    if (clean.description !== undefined) {
+      clean.description = cleanText(clean.description, 10000);
+      if (!clean.description) throw new AppError('Description cannot be empty', 400);
+    }
+    if (clean.terms !== undefined) clean.terms = cleanText(clean.terms, 5000);
+
     if (clean.publishAt !== undefined) {
       if (clean.publishAt === null || clean.publishAt === '') {
         clean.publishAt = null;
@@ -161,6 +159,19 @@ class EventService {
         const parsed = new Date(clean.publishAt);
         if (isNaN(parsed)) throw new AppError('Invalid publish date', 400);
         clean.publishAt = parsed;
+      }
+    }
+
+    // Draft / publish intent from the form's two buttons
+    if (updates.status === 'draft') {
+      clean.isPublished = false;
+      clean.publishAt = null;
+    } else if (updates.status === 'publish') {
+      if (clean.publishAt instanceof Date && clean.publishAt > new Date()) {
+        clean.isPublished = false;        // scheduled
+      } else {
+        clean.isPublished = true;
+        clean.publishAt = null;
       }
     }
 

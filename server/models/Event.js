@@ -13,6 +13,8 @@ const ticketTypeSchema = new mongoose.Schema({
 const eventSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String, required: true },
+  // Organizer-written terms & conditions (markdown-lite, rendered escaped on the client)
+  terms: { type: String, default: '', maxlength: 5000 },
   date: { type: Date, required: true },
   venue: { type: String, required: true },
   location: { type: String },
