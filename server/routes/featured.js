@@ -1,12 +1,13 @@
+// routes/featured.js
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
-const { requireModeratorOrAdmin } = require('../middleware/rbac');   // use the guard your /admin routes use
 const featuredController = require('../controllers/featuredController');
+const { cache } = require('../middleware/cache');
 
-// public: feeds the homepage carousel
-router.get('/events/featured', featuredController.getFeatured);
-
-
+// Public: feeds the homepage carousel. Cached 60s — it changes only when an
+// admin toggles isFeatured, which is far less frequently than the carousel
+// is loaded. The admin path invokes the featured controller directly (not
+// through this route), so its mutations aren't blocked by this cache.
+router.get('/events/featured', cache(60), featuredController.getFeatured);
 
 module.exports = router;

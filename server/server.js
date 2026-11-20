@@ -2,18 +2,20 @@ require('dotenv').config();
 
 const fs = require('fs');
 const path = require('path');
-const app = require('./app');
 const mongoose = require('mongoose');
 const config = require('./config');
 const { connectDB } = require('./config/db');
-// const { connectRedis } = require('./config/redis');  // re-enable when Redis is wired up
+const { connectRedis, disconnectRedis } = require('./config/redis');
 const { logger } = require('./config/logger');
 
 // ── Ensure required directories exist ──
-// resolve() so the path is relative to the server dir, not process.cwd().
-// (multer.js and logger.js also create their own dirs — this is redundant
-// but ensures dataDir exists if some service needs it.)
-[config.dataDir, config.uploadDir].forEach((dir) => {
+// dataDir only. uploadDir was removed when the image pipeline moved to
+// Cloudflare R2 — nothing writes to a local uploads folder anymore.
+// dataDir is kept because other parts of the app (e.g. logger) may still
+// write local files there. Verify with:
+//   grep -rn "config.dataDir" server/ --include="*.js"
+// If the only hit is this file, delete the whole block.
+[config.dataDir].forEach((dir) => {
   if (!dir) return;
   const resolved = path.isAbsolute(dir) ? dir : path.resolve(__dirname, dir);
   if (!fs.existsSync(resolved)) fs.mkdirSync(resolved, { recursive: true });
@@ -36,6 +38,20 @@ const startServer = async () => {
   try {
     await connectDB();
     logger.info('✅ Database connected');
+
+    // Redis is a hard dependency in production: rate limiters depend on it
+    // to enforce limits across every instance. If REDIS_URL is missing or
+    // wrong, connectRedis() throws and the outer catch exits(1) rather than
+    // running with silently-broken rate limiting.
+    await connectRedis();
+    logger.info('✅ Redis connected');
+
+    // ⚠️ app is required HERE — AFTER connectRedis() — not at the top of the
+    // file. middleware/rateLimit.js calls getRedisClient() at module load to
+    // build its stores; if that runs before Redis is connected, every limiter
+    // falls back to the in-memory store and the migration has zero effect on
+    // cross-instance rate limiting.
+    const app = require('./app');
 
     server = app.listen(PORT, () => {
       logger.info(`🚀 Server running on port ${PORT}`);
@@ -93,6 +109,12 @@ const gracefulShutdown = async (signal, exitCode = 0) => {
 
     await mongoose.connection.close();
     logger.info('✅ Database connection closed');
+
+    // Redis is closed last: nothing is arriving (HTTP server closed) and
+    // nothing is writing to Mongo (closed above). Any in-flight middleware
+    // that touched Redis during shutdown will have already completed.
+    await disconnectRedis();
+    logger.info('✅ Shutdown complete');
   } catch (err) {
     logger.error('❌ Error during shutdown', { err: err.message });
     exitCode = 1;

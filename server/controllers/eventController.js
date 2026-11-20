@@ -6,7 +6,32 @@ const { uploadSingle } = require('../config/multer');
 const { uploadImage, deleteImage, keyFromUrl } = require('../services/storageService');
 const { AppError } = require('../utils/appError');
 
+
 const ctx = (req) => ({ ip: req.ip, userAgent: req.get('user-agent') });
+
+// Invalidate the cache entries that the public listing depends on.
+// Called after any event mutation so the next page load reflects the change.
+// Fire-and-forget — a cache miss is cheap, but a failed delete should not
+// fail the request that triggered it.
+async function invalidateEventCaches() {
+  const redis = require('../config/redis').getRedisClient();
+  if (!redis) return;
+  try {
+    // Exact key for the featured carousel
+    await redis.del('cache:/api/events/featured');
+
+    // SCAN (never KEYS) for every URL variation of the listing. Node-redis v4
+    // takes an options object for SCAN; COUNT is a hint, not a guarantee.
+    let cursor = '0';
+    do {
+      const reply = await redis.scan(cursor, { MATCH: 'cache:/api/events?*', COUNT: 100 });
+      cursor = reply.cursor;
+      if (reply.keys && reply.keys.length) await redis.del(reply.keys);
+    } while (cursor !== '0');
+  } catch (err) {
+    require('../config/logger').logger.warn('Cache invalidation failed', { err: err.message });
+  }
+}
 
 // Helper to parse ticketTypes if it's a string (FormData submissions).
 // Throws AppError on bad JSON so errorHandler maps it to 400, not 500.
@@ -57,6 +82,7 @@ exports.createEvent = [
       logService.audit(req.user.email, 'create_event', event?.title || req.body?.title, {
         type: 'event', adminId: req.user.id, eventId: String(event?._id || event?.id || ''), ...ctx(req),
       });
+      invalidateEventCaches();   // ← ADD
       res.status(201).json(event);
     } catch (err) {
       // Cleanup: R2 upload succeeded but event creation failed
@@ -134,6 +160,7 @@ exports.updateEvent = [
         type: 'event', adminId: req.user.id, eventId: req.params.id,
         submittedFields: Object.keys(req.body || {}), imageChanged: !!req.file, ...ctx(req),
       });
+      invalidateEventCaches();   // ← ADD
       res.json(event);
     } catch (err) {
       // Cleanup: R2 upload succeeded but DB update failed
@@ -171,6 +198,7 @@ exports.deleteEvent = async (req, res, next) => {
     logService.audit(req.user.email, 'delete_event', before?.title || req.params.id, {
       type: 'danger', adminId: req.user.id, eventId: req.params.id, ...ctx(req),
     });
+    invalidateEventCaches();   // ← ADD
     res.status(204).send();
   } catch (err) {
     next(err);
@@ -186,6 +214,7 @@ exports.togglePublish = async (req, res, next) => {
         type: 'event', adminId: req.user.id, eventId: req.params.id, ...ctx(req),
       });
     }
+    invalidateEventCaches();   // ← ADD
     res.json(event);
   } catch (err) {
     next(err);
@@ -198,6 +227,7 @@ exports.cancelEvent = async (req, res, next) => {
     logService.audit(req.user.email, 'cancel_event', event?.title || req.params.id, {
       type: 'danger', adminId: req.user.id, eventId: req.params.id, ...ctx(req),
     });
+    invalidateEventCaches();   // ← ADD
     res.json(event);
   } catch (err) {
     next(err);

@@ -2,7 +2,7 @@
 // CONFIGURATION + GLOBAL DATA
 // ===============================================
 
-const API_BASE = 'https://glycr.onrender.com/api';
+const API_BASE = 'https://mujtic.onrender.com/api';
 let authToken = null;
 let currentAdmin = { name: 'Admin', email: '', role: '' };
 
