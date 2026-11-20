@@ -590,7 +590,8 @@ class MujticApp {
     //   https://mujtic.netlify.app/?payment_ref=MJT-...
     // Verify before any user interaction, then strip the param so refresh
     // doesn't trigger a second verification.
-    const paymentRef = new URLSearchParams(location.search).get('payment_ref');
+    const qs = new URLSearchParams(location.search);
+    const paymentRef = qs.get('payment_ref') || qs.get('reference') || qs.get('trxref');
     if (paymentRef) {
       window.history.replaceState({}, '', location.pathname + location.hash);
       this._verifyPaystackReturn(paymentRef);   // no await — let it run async
@@ -890,7 +891,6 @@ class MujticApp {
         ticketType:  type,
         eventId:     this._idOf(m.eventId || m.event) || pending?.eventId || '',
         eventTitle:  m.eventTitle || ev?.title || pending?.eventTitle || '',
-        price:       m.price != null ? m.price : (ev && type ? this.getTicketPrice(ev, type) : 0),
         buyerName:   m.buyerName  || m.userName  || pending?.buyerName  || this.currentUser?.name  || '',
         buyerEmail:  m.buyerEmail || m.userEmail || pending?.buyerEmail || this.currentUser?.email || '',
         userName:    m.userName   || m.buyerName || pending?.buyerName  || this.currentUser?.name  || '',
@@ -944,7 +944,9 @@ class MujticApp {
       this.lastPurchasedEvent   = ev;
 
       if (this.currentUser) {
-        this.showSection('profile');
+        // Land on the event they bought, with the ticket modal on top.
+        // showEventPage sets the URL to #event-<id>, e.g. mujtic.vercel.app/#event-6ae6feb1...
+        if (evId) this.showEventPage(evId); else this.showSection('profile');
         this._showTicketModal(tickets[0], ev);
       } else {
         await this._showGuestTicketConfirmation(tickets, reference, ev);
@@ -2467,6 +2469,8 @@ class MujticApp {
     // ── Paid ticket: Paystack hosted checkout ──
     statusEl.className = 'status-msg loading';
     statusEl.textContent = 'Redirecting to Paystack…';
+    const payBtn = document.getElementById('pay-btn');
+    if (payBtn) payBtn.disabled = true;           // stops a double click starting two payments
     try {
       const res = await this.fetchApi('/payments/initialize', {
         method: 'POST',
@@ -2507,8 +2511,11 @@ class MujticApp {
         localStorage.setItem('mujtic_pending_payment', JSON.stringify({ reference: res.reference, ts: Date.now() }));
       } catch {}
 
+      this.showToast('Redirecting you to Paystack to complete your payment…', 'info', 10000);
+      await this.delay(600);                      // gives the toast time to appear before the page unloads
       window.location.href = res.authorizationUrl;
     } catch (err) {
+      if (payBtn) payBtn.disabled = false;
       statusEl.className = 'status-msg error';
       statusEl.textContent = err.message || 'Could not start payment.';
     }
@@ -2775,7 +2782,6 @@ class MujticApp {
     } catch (err) { s.className = 'status-msg error'; s.textContent = err.message || 'Failed. Please try again.'; }
   }
 
-  // ─── Organizer Refund Management ──────────────────────────
   // ─── Organizer Refund Management ──────────────────────────
   async openOrgRefundsModal() {
     try { this.acl.requireOrganizer(); } catch { return; }
@@ -5002,6 +5008,9 @@ MujticApp.prototype.init = async function () {
     else if (this.getActiveSection() === 'event-page') this.showSection('home');
   });
   this._routeFromHash(initialHash);   // deep link wins over the default landing section
+  window.addEventListener('pageshow', e => {
+    if (e.persisted) { const b = document.getElementById('pay-btn'); if (b) b.disabled = false; }
+  });
 };
 
 // Patch showSection: validation page, stale org data refresh, and clearing the event hash
