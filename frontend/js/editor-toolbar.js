@@ -1,17 +1,17 @@
 /* ============================================================
-   Mujtic formatting toolbar  (js/editor-toolbar.js)
-   - MujticEditor.attach(textarea)  adds the toolbar + preview
-   - MujticEditor.render(text)      safe text -> HTML
+   Mujtic rich-text editor  (js/editor-toolbar.js)
+   - MujticEditor.attach(textarea)  visual editor; the textarea stays
+                                    the (hidden) source of truth
+   - MujticEditor.render(text)      saved text -> safe HTML
    - MujticEditor.plain(text)       strips formatting (meta tags etc.)
-   - MujticEditor.sync(textarea)    leaves preview mode (call after form.reset())
+   - MujticEditor.sync(textarea)    reload the editor from the textarea
 
-   Syntax:
-     **bold**   _italic_   ## heading   - bullet   1. numbered
-     [label](https://url)
-     {center} text   /   {right} text     (alignment, per line)
-
-   Everything is HTML-escaped BEFORE formatting is applied, so user
-   text can never inject markup.
+   Saved format (unchanged):
+     **bold**  _italic_  ## heading  - bullet  1. numbered
+     [label](https://url)   {center} text  /  {right} text
+   The editor never saves HTML: its DOM is converted to this format,
+   and render() escapes all text before formatting, so nothing a user
+   types or pastes can inject markup.
 ============================================================ */
 (function (global) {
   'use strict';
@@ -19,9 +19,7 @@
   const esc = v => String(v ?? '').replace(/[&<>"'`]/g, ch =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[ch]));
 
-  const ALIGN_RE = /^\{(?:center|right)\}[ ]?/;
-
-  /* ───────── Rendering ───────── */
+  /* ───────── Render (saved text -> HTML) ───────── */
   function inline(s) {
     const stash = [];
     s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g, (_, t, u) => {
@@ -29,7 +27,7 @@
       return `\u0000${stash.length - 1}\u0000`;
     });
     s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/(^|[\s(])_([^_\n]+)_(?=[\s.,!?;:)]|$)/g, '$1<em>$2</em>');
+      .replace(/(^|[\s(>])_([^_\n]+)_(?=[\s.,!?;:)<]|$)/g, '$1<em>$2</em>');
     return s.replace(/\u0000(\d+)\u0000/g, (_, i) => stash[+i] || '');
   }
 
@@ -80,7 +78,7 @@
         continue;
       }
       flushL();
-      if (para.length && paraAl !== al) flushP();   // alignment change starts a new paragraph
+      if (para.length && paraAl !== al) flushP();
       paraAl = al;
       para.push(body);
     }
@@ -99,130 +97,225 @@
       .replace(/\s+/g, ' ').trim();
   }
 
-  /* ───────── Text operations ───────── */
-  // insertText keeps the browser's undo stack; setRangeText is the fallback
-  function exec(ta, start, end, text, selStart, selEnd) {
-    ta.focus();
-    ta.setSelectionRange(start, end);
-    let ok = false;
-    try { ok = document.execCommand('insertText', false, text); } catch { /* fall through */ }
-    if (!ok) {
-      ta.setRangeText(text, start, end, 'end');
-      ta.dispatchEvent(new Event('input', { bubbles: true }));
+  /* ───────── Serialize (editor DOM -> saved text) ───────── */
+  // Whitelist walk: only text, bold, italic, links, headings, lists and
+  // alignment are read. Everything else is reduced to its text.
+  const BLOCK_RE = /^(div|p|h[1-6]|ul|ol|li|blockquote|pre|section|article|header|footer)$/;
+  const tagOf = n => n.nodeName.toLowerCase();
+  const isEl = n => n.nodeType === 1;
+
+  function alignOf(el, inherit) {
+    const s = (el.style && el.style.textAlign) || '';
+    if (s === 'center' || s === 'right') return s;
+    if (s === 'left' || s === 'start') return '';
+    const a = (el.getAttribute && el.getAttribute('align') || '').toLowerCase();
+    if (a === 'center' || a === 'right') return a;
+    if (a === 'left') return '';
+    if (el.classList) {
+      if (el.classList.contains('md-al-center')) return 'center';
+      if (el.classList.contains('md-al-right')) return 'right';
     }
-    ta.setSelectionRange(selStart, selEnd);
+    return inherit;
   }
 
-  function wrap(ta, before, after, placeholder) {
-    const v = ta.value, s = ta.selectionStart, e = ta.selectionEnd, sel = v.slice(s, e);
-    // selection already contains the markers → remove them
-    if (sel.length >= before.length + after.length && sel.startsWith(before) && sel.endsWith(after)) {
-      const inner = sel.slice(before.length, sel.length - after.length);
-      return exec(ta, s, e, inner, s, s + inner.length);
-    }
-    // markers sit just outside the selection → remove them
-    if (s >= before.length && v.slice(s - before.length, s) === before && v.slice(e, e + after.length) === after) {
-      const a = s - before.length;
-      return exec(ta, a, e + after.length, sel, a, a + sel.length);
-    }
-    const text = sel || placeholder;
-    exec(ta, s, e, before + text + after, s + before.length, s + before.length + text.length);
-  }
-
-  // splits "{center} text" into ["{center} ", "text"]
-  const splitAlign = l => {
-    const m = ALIGN_RE.exec(l);
-    return m ? [m[0], l.slice(m[0].length)] : ['', l];
-  };
-
-  // Heading / bullet / numbered list on the selected lines. Keeps alignment markers.
-  function prefixLines(ta, kind) {
-    const v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
-    const ls = s === 0 ? 0 : v.lastIndexOf('\n', s - 1) + 1;
-    let le = v.indexOf('\n', e); if (le < 0) le = v.length;
-    const block = v.slice(ls, le);
-    const first = kind === 'h' ? '## ' : kind === 'ul' ? '- ' : '1. ';
-    if (!block.trim()) return exec(ta, ls, le, first, ls + first.length, ls + first.length);
-
-    const re = { h: /^#{1,3}\s+/, ul: /^\s*[-*]\s+/, ol: /^\s*\d+[.)]\s+/ }[kind];
-    const lines = block.split('\n');
-    const allOn = lines.every(l => { const b = splitAlign(l)[1]; return !b.trim() || re.test(b); });
-    let n = 0;
-    const out = lines.map(l => {
-      const [mk, body] = splitAlign(l);
-      if (!body.trim()) return l;
-      if (allOn) return mk + body.replace(re, '');
-      const bare = body.replace(/^#{1,3}\s+|^\s*[-*]\s+|^\s*\d+[.)]\s+/, '');
-      n++;
-      return mk + (kind === 'h' ? '## ' : kind === 'ul' ? '- ' : `${n}. `) + bare;
+  function wrapMark(text, mark) {
+    return text.split('\n').map(seg => {
+      const m = /^(\s*)([\s\S]*?)(\s*)$/.exec(seg);
+      return m[2] ? m[1] + mark + m[2] + mark + m[3] : seg;
     }).join('\n');
-    exec(ta, ls, le, out, ls, ls + out.length);
   }
 
-  // Alignment on the selected lines. kind: 'left' | 'center' | 'right'
-  function align(ta, kind) {
-    const v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
-    const ls = s === 0 ? 0 : v.lastIndexOf('\n', s - 1) + 1;
-    let le = v.indexOf('\n', e); if (le < 0) le = v.length;
-    const block = v.slice(ls, le);
+  function inl(n) {
+    if (n.nodeType === 3) return n.nodeValue.replace(/\u00a0/g, ' ').replace(/[\r\n]+/g, ' ');
+    if (!isEl(n)) return '';
+    const t = tagOf(n);
+    if (t === 'br') return '\n';
+    if (t === 'script' || t === 'style') return '';
+    let out = Array.from(n.childNodes).map(inl).join('');
+    if (BLOCK_RE.test(t)) return out + '\n';
 
-    if (!block.trim()) {               // empty line: just drop the marker in
-      if (kind === 'left') return;
-      const t = `{${kind}} `;
-      return exec(ta, ls, le, t, ls + t.length, ls + t.length);
+    const st = n.style || {};
+    const fw = String(st.fontWeight || '');
+    const bold = t === 'b' || t === 'strong' || fw === 'bold' || (+fw >= 600);
+    const ital = t === 'i' || t === 'em' || st.fontStyle === 'italic';
+
+    if (t === 'a') {
+      let href = (n.getAttribute('href') || '').trim();
+      if (/^(https?:\/\/|mailto:)/i.test(href) && out.trim()) {
+        href = href.replace(/\s/g, '%20').replace(/\)/g, '%29');
+        out = `[${out.replace(/[\[\]\n]/g, ' ').trim()}](${href})`;
+      }
     }
-    const lines = block.split('\n');
-    const cur = l => { const m = /^\{(center|right)\}/.exec(l); return m ? m[1] : 'left'; };
-    const filled = lines.filter(l => l.trim());
-    // clicking the active alignment again switches it off (back to left)
-    const target = (kind !== 'left' && filled.every(l => cur(l) === kind)) ? 'left' : kind;
-
-    const out = lines.map(l => {
-      if (!l.trim()) return l;
-      const bare = l.replace(ALIGN_RE, '');
-      return target === 'left' ? bare : `{${target}} ${bare}`;
-    }).join('\n');
-    exec(ta, ls, le, out, ls, ls + out.length);
+    if (ital) out = wrapMark(out, '_');
+    if (bold) out = wrapMark(out, '**');
+    return out;
   }
 
-  function link(ta) {
-    const v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
-    const label = v.slice(s, e) || 'link text';
-    let url = global.prompt('Link address (https://…)', 'https://');
-    if (!url) return;
-    url = url.trim();
-    if (!/^(https?:\/\/|mailto:)/i.test(url)) {
-      global.alert('Links must start with https://, http:// or mailto:');
-      return;
+  const inlText = el => Array.from(el.childNodes).map(inl).join('').replace(/\n+$/, '');
+
+  function collect(parent, al, out) {
+    let run = [];
+    const flush = () => {
+      if (!run.length) return;
+      const text = run.map(inl).join('').replace(/\n$/, '');
+      if (text.trim() || run.some(n => isEl(n) && tagOf(n) === 'br')) out.push({ type: 'div', al, text });
+      run = [];
+    };
+    for (const c of parent.childNodes) {
+      if (isEl(c) && BLOCK_RE.test(tagOf(c))) {
+        flush();
+        const t = tagOf(c), a = alignOf(c, al);
+        if (t === 'ul' || t === 'ol') {
+          for (const li of c.children) {
+            if (tagOf(li) !== 'li') continue;
+            out.push({ type: t, al: alignOf(li, a), text: inlText(li) });
+          }
+        } else if (/^h[1-6]$/.test(t)) {
+          out.push({ type: 'h', al: a, text: inlText(c) });
+        } else if (Array.from(c.children).some(k => BLOCK_RE.test(tagOf(k)))) {
+          collect(c, a, out);
+        } else {
+          out.push({ type: t === 'p' ? 'p' : 'div', al: a, text: inlText(c) });
+        }
+      } else run.push(c);
     }
-    url = url.replace(/\s/g, '%20').replace(/\)/g, '%29');
-    exec(ta, s, e, `[${label}](${url})`, s + 1, s + 1 + label.length);
+    flush();
   }
 
-  const BUTTONS = [
-    ['bold',   'fa-bold',         'Bold (Ctrl+B)',   ta => wrap(ta, '**', '**', 'bold text')],
-    ['italic', 'fa-italic',       'Italic (Ctrl+I)', ta => wrap(ta, '_', '_', 'italic text')],
-    ['h',      'fa-heading',      'Heading',         ta => prefixLines(ta, 'h')],
-    ['ul',     'fa-list-ul',      'Bulleted list',   ta => prefixLines(ta, 'ul')],
-    ['ol',     'fa-list-ol',      'Numbered list',   ta => prefixLines(ta, 'ol')],
-    ['link',   'fa-link',         'Link (Ctrl+K)',   link],
-    ['sep'],
-    ['al-l',   'fa-align-left',   'Align left',      ta => align(ta, 'left')],
-    ['al-c',   'fa-align-center', 'Align center',    ta => align(ta, 'center')],
-    ['al-r',   'fa-align-right',  'Align right',     ta => align(ta, 'right')],
-  ];
+  function serialize(root) {
+    const blocks = [];
+    collect(root, '', blocks);
+    let md = '', prev = null, n = 0;
+    for (const b of blocks) {
+      const mk = b.al ? `{${b.al}} ` : '';
+      let chunk;
+      if (b.type === 'h') {
+        const t = b.text.replace(/\n/g, ' ').trim();
+        if (!t) continue;
+        chunk = mk + '## ' + t;
+      } else if (b.type === 'ul' || b.type === 'ol') {
+        const t = b.text.replace(/\n/g, ' ').trim();
+        if (!t) continue;
+        n = (prev && prev.type === 'ol' && b.type === 'ol') ? n + 1 : 1;
+        chunk = mk + (b.type === 'ul' ? '- ' : `${n}. `) + t;
+      } else {
+        chunk = b.text.split('\n').map(l => l.trim() ? mk + l.trim() : '').join('\n');
+      }
+      if (prev !== null) {
+        const sameList = prev.type === b.type && (b.type === 'ul' || b.type === 'ol');
+        const bothDiv = prev.type === 'div' && b.type === 'div';
+        md += (sameList || bothDiv) ? '\n' : '\n\n';
+      }
+      md += chunk;
+      prev = b;
+    }
+    return md.replace(/\n{3,}/g, '\n\n').replace(/^\n+|\s+$/g, '');
+  }
 
   /* ───────── Attach ───────── */
+  const STATE = {
+    bold: 'bold', italic: 'italic', ul: 'insertUnorderedList', ol: 'insertOrderedList',
+    'al-l': 'justifyLeft', 'al-c': 'justifyCenter', 'al-r': 'justifyRight',
+  };
+
   function attach(ta) {
     if (!ta) return null;
     if (ta._mdApi) return ta._mdApi;
+
+    const desc = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+
+    const wrapEl = document.createElement('div');
+    wrapEl.className = 'md-wrap';
+    ta.parentNode.insertBefore(wrapEl, ta);
 
     const bar = document.createElement('div');
     bar.className = 'md-toolbar';
     bar.setAttribute('role', 'toolbar');
     bar.setAttribute('aria-label', 'Text formatting');
 
-    const fmtBtns = [];
+    const editor = document.createElement('div');
+    editor.className = 'input md-editor md-body';
+    editor.contentEditable = 'true';
+    editor.setAttribute('role', 'textbox');
+    editor.setAttribute('aria-multiline', 'true');
+    editor.setAttribute('aria-label', ta.getAttribute('aria-label') || 'Text');
+    editor.dataset.placeholder = ta.getAttribute('placeholder') || '';
+    editor.spellcheck = true;
+
+    const hint = document.createElement('p');
+    hint.className = 'md-hint';
+    hint.textContent = 'Select text, then use the buttons. What you see here is what buyers will see.';
+
+    wrapEl.append(bar, editor, ta, hint);
+    ta.classList.add('md-ta-hidden');
+    ta.tabIndex = -1;
+    ta.setAttribute('aria-hidden', 'true');
+
+    function load(md) {
+      editor.innerHTML = render(md) || '<div><br></div>';
+      editor.classList.toggle('is-empty', !String(md || '').trim());
+    }
+    function push() {
+      const md = serialize(editor);
+      desc.set.call(ta, md);                        // bypass our own setter below
+      editor.classList.toggle('is-empty', !md);
+    }
+
+    // Code that sets textarea.value (e.g. when editing an event) updates the editor too
+    Object.defineProperty(ta, 'value', {
+      configurable: true, enumerable: true,
+      get() { return desc.get.call(this); },
+      set(v) { desc.set.call(this, v); load(v); },
+    });
+    load(desc.get.call(ta));
+
+    const form = ta.closest('form');
+    if (form) form.addEventListener('reset', () => setTimeout(() => load(desc.get.call(ta)), 0));
+    ta.addEventListener('focus', () => editor.focus());   // required-field validation lands here
+
+    const focusEd = () => { if (document.activeElement !== editor) editor.focus(); };
+    const cmd = (c, v) => { focusEd(); document.execCommand(c, false, v); push(); refresh(); };
+
+    function heading() {
+      focusEd();
+      const cur = String(document.queryCommandValue('formatBlock') || '').toLowerCase().replace(/[<>]/g, '');
+      document.execCommand('formatBlock', false, cur === 'h4' ? '<div>' : '<h4>');
+      push(); refresh();
+    }
+
+    function link() {
+      focusEd();
+      const sel = global.getSelection();
+      const saved = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+      let url = global.prompt('Link address (https://…)', 'https://');
+      if (!url) return;
+      url = url.trim();
+      if (!/^(https?:\/\/|mailto:)/i.test(url)) {
+        global.alert('Links must start with https://, http:// or mailto:');
+        return;
+      }
+      editor.focus();
+      if (saved) { sel.removeAllRanges(); sel.addRange(saved); }
+      url = url.replace(/\s/g, '%20');
+      if (sel.isCollapsed) document.execCommand('insertHTML', false, `<a href="${esc(url)}">${esc(url)}</a>`);
+      else document.execCommand('createLink', false, url);
+      push();
+    }
+
+    const BUTTONS = [
+      ['bold',   'fa-bold',         'Bold (Ctrl+B)',   () => cmd('bold')],
+      ['italic', 'fa-italic',       'Italic (Ctrl+I)', () => cmd('italic')],
+      ['h',      'fa-heading',      'Heading',         heading],
+      ['ul',     'fa-list-ul',      'Bulleted list',   () => cmd('insertUnorderedList')],
+      ['ol',     'fa-list-ol',      'Numbered list',   () => cmd('insertOrderedList')],
+      ['link',   'fa-link',         'Link (Ctrl+K)',   link],
+      ['sep'],
+      ['al-l',   'fa-align-left',   'Align left',      () => cmd('justifyLeft')],
+      ['al-c',   'fa-align-center', 'Align center',    () => cmd('justifyCenter')],
+      ['al-r',   'fa-align-right',  'Align right',     () => cmd('justifyRight')],
+    ];
+
+    const btns = {};
     BUTTONS.forEach(([id, icon, title, run]) => {
       if (id === 'sep') {
         const d = document.createElement('span');
@@ -234,59 +327,54 @@
       b.type = 'button'; b.className = 'md-btn'; b.dataset.md = id;
       b.title = title; b.setAttribute('aria-label', title);
       b.innerHTML = `<i class="fas ${icon}"></i>`;
-      b.addEventListener('mousedown', e => e.preventDefault());   // keep the text selection
-      b.addEventListener('click', () => run(ta));
+      b.addEventListener('mousedown', e => e.preventDefault());   // keep the selection
+      b.addEventListener('click', run);
       bar.appendChild(b);
-      fmtBtns.push(b);
+      btns[id] = b;
     });
 
-    const spacer = document.createElement('span');
-    spacer.className = 'md-spacer';
-    bar.appendChild(spacer);
-
-    const pvBtn = document.createElement('button');
-    pvBtn.type = 'button'; pvBtn.className = 'md-btn md-btn-text'; pvBtn.setAttribute('aria-pressed', 'false');
-    pvBtn.innerHTML = '<i class="fas fa-eye"></i> Preview';
-    bar.appendChild(pvBtn);
-
-    const prev = document.createElement('div');
-    prev.className = 'md-preview md-body'; prev.hidden = true;
-
-    const hint = document.createElement('p');
-    hint.className = 'md-hint';
-    hint.textContent = 'Select text or lines, then use the buttons. Alignment shows as {center} or {right} at the start of a line. Use Preview to see the result.';
-
-    ta.parentNode.insertBefore(bar, ta);
-    ta.parentNode.insertBefore(prev, ta.nextSibling);
-    prev.parentNode.insertBefore(hint, prev.nextSibling);
-    ta.classList.add('md-textarea');
-
-    function setPreview(on) {
-      if (on) prev.innerHTML = render(ta.value) || '<p class="md-empty">Nothing to preview yet.</p>';
-      prev.hidden = !on;
-      // hidden visually but still focusable, so a `required` textarea never blocks form submit
-      ta.classList.toggle('md-ta-hidden', on);
-      fmtBtns.forEach(b => { b.disabled = on; });
-      pvBtn.setAttribute('aria-pressed', String(on));
-      pvBtn.innerHTML = on ? '<i class="fas fa-pen"></i> Edit' : '<i class="fas fa-eye"></i> Preview';
+    function refresh() {
+      const sel = global.getSelection();
+      if (!sel || !sel.rangeCount || !editor.contains(sel.anchorNode)) return;
+      Object.entries(STATE).forEach(([id, c]) => {
+        let on = false;
+        try { on = document.queryCommandState(c); } catch { /* ignore */ }
+        btns[id].classList.toggle('is-on', !!on);
+      });
+      let blk = '';
+      try { blk = String(document.queryCommandValue('formatBlock') || '').toLowerCase().replace(/[<>]/g, ''); } catch { /* ignore */ }
+      btns.h.classList.toggle('is-on', blk === 'h4');
     }
-    pvBtn.addEventListener('mousedown', e => e.preventDefault());
-    pvBtn.addEventListener('click', () => setPreview(prev.hidden));
+    document.addEventListener('selectionchange', refresh);
 
-    ta.addEventListener('keydown', e => {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-      const k = e.key.toLowerCase();
-      if (k === 'b') { e.preventDefault(); wrap(ta, '**', '**', 'bold text'); }
-      else if (k === 'i') { e.preventDefault(); wrap(ta, '_', '_', 'italic text'); }
-      else if (k === 'k') { e.preventDefault(); link(ta); }
+    editor.addEventListener('input', push);
+    editor.addEventListener('focus', () => {
+      try {
+        document.execCommand('defaultParagraphSeparator', false, 'div');
+        document.execCommand('styleWithCSS', false, false);
+      } catch { /* ignore */ }
+    });
+    editor.addEventListener('paste', e => {          // plain text only
+      e.preventDefault();
+      const t = (e.clipboardData || global.clipboardData).getData('text/plain');
+      document.execCommand('insertText', false, t);
+    });
+    editor.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); link(); }
     });
 
-    ta._mdApi = { setPreview };
+    ta._mdApi = { reload() { load(desc.get.call(ta)); }, editor };
     return ta._mdApi;
   }
 
+  function autoAttach() {
+    ['event-desc', 'event-terms'].forEach(id => attach(document.getElementById(id)));
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', autoAttach);
+  else autoAttach();
+
   global.MujticEditor = {
-    attach, render, plain,
-    sync(ta) { ta && ta._mdApi && ta._mdApi.setPreview(false); },
+    attach, render, plain, serialize,
+    sync(ta) { ta && ta._mdApi && ta._mdApi.reload(); },
   };
 })(window);
