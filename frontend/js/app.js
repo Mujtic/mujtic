@@ -284,7 +284,8 @@ class MujticApp {
   }
 
   getCategoryIcon(slug) {
-    const icons = { music: 'fa-music', food: 'fa-utensils', arts: 'fa-palette', sports: 'fa-futbol', business: 'fa-briefcase', nightlife: 'fa-moon', family: 'fa-child', workshops: 'fa-chalkboard-user', community: 'fa-users', free: 'fa-ticket-alt' };
+    const icons = { music: 'fa-music', food: 'fa-utensils', arts: 'fa-palette', sports: 'fa-futbol', business: 'fa-briefcase', nightlife: 'fa-moon', family: 'fa-child', workshops: 'fa-chalkboard-user', community: 'fa-users', free: 'fa-ticket-alt',
+      comedy: 'fa-face-laugh-beam', concert: 'fa-guitar', conference: 'fa-people-group', technology: 'fa-microchip' };
     return icons[slug] || 'fa-calendar';
   }
 
@@ -296,7 +297,8 @@ class MujticApp {
   }
 
   getCategoryName(slug) {
-    const n = { music: 'Music', food: 'Food & Drink', arts: 'Arts & Theater', sports: 'Sports & Fitness', business: 'Business & Networking', nightlife: 'Nightlife & Parties', family: 'Family & Kids', workshops: 'Workshops & Classes', community: 'Community & Festivals', free: 'Free Events' };
+    const n = { music: 'Music', food: 'Food & Drink', arts: 'Arts & Theater', sports: 'Sports & Fitness', business: 'Business & Networking', nightlife: 'Nightlife & Parties', family: 'Family & Kids', workshops: 'Workshops & Classes', community: 'Community & Festivals', free: 'Free Events',
+      comedy: 'Comedy', concert: 'Concert', conference: 'Conference', technology: 'Technology' };
     return n[slug] || slug;
   }
 
@@ -1349,8 +1351,7 @@ class MujticApp {
   renderHomeExtras() {
     const cats = document.getElementById('hm-cats');
     if (cats) {
-      const slugs = ['music', 'food', 'arts', 'sports', 'business', 'nightlife', 'family', 'workshops', 'community', 'free'];
-      cats.innerHTML = slugs.map(s =>
+      const slugs = ['music', 'concert', 'comedy', 'conference', 'technology', 'food', 'arts', 'sports', 'business', 'nightlife', 'family', 'workshops', 'community', 'free'];      cats.innerHTML = slugs.map(s =>
         `<button type="button" class="hm-cat" data-home-cat="${s}">
            <span class="hm-cat-ico"><i class="fas ${this.getCategoryIcon(s)}"></i></span>
            <span>${esc(this.getCategoryName(s))}</span>
@@ -1923,6 +1924,15 @@ class MujticApp {
       const pagination = response.pagination || null;
       if (reset) this.events = [];
       this.events.push(...newEvents);
+      if (reset && !newEvents.length) {
+        grid.innerHTML = `<div class="empty-state">
+    <div class="empty-emoji" aria-hidden="true"><i class="fa-solid fa-face-sad-tear"></i></div>
+    <h3>No events found</h3>
+    <p>We couldn't find any events matching your current filters. Try adjusting your search.</p>
+  </div>`;
+        this.hasMoreEvents = false;
+        return;   // the finally block still runs
+      }
       if (reset) {
         grid.innerHTML = this.events.map(e => this.renderEventCard(e)).join('');
       } else {

@@ -187,6 +187,8 @@
       <option value="business">Business</option><option value="nightlife">Nightlife</option>
       <option value="family">Family</option><option value="workshops">Workshops</option>
       <option value="community">Community</option><option value="free">Free</option>
+      <option value="comedy">Comedy</option><option value="concert">Concert</option>
+      <option value="conference">Conference</option><option value="technology">Technology</option>
     </select>
     <select id="location-filter" class="filter-chip">
       <option value="">All Locations</option>
@@ -203,6 +205,20 @@
         <option value="Spintex" data-coords="5.6350,-0.1000">Spintex</option>
         <option value="accra-central" data-coords="5.5500,-0.2050">Accra Central</option>
         <option value="west-legon" data-coords="5.6450,-0.2000">West Legon</option>
+        <option value="adenta" data-coords="5.7060,-0.1650">Adenta</option>
+        <option value="achimota" data-coords="5.6200,-0.2300">Achimota</option>
+        <option value="nungua" data-coords="5.6000,-0.0750">Nungua</option>
+        <option value="teshie" data-coords="5.5800,-0.1060">Teshie</option>
+        <option value="dzorwulu" data-coords="5.6100,-0.1950">Dzorwulu</option>
+        <option value="tesano" data-coords="5.6050,-0.2300">Tesano</option>
+        <option value="tantra-hills" data-coords="5.6250,-0.2200">Tantra Hills</option>
+        <option value="shukura" data-coords="5.5560,-0.2330">Shukura</option>
+        <option value="pampram" data-coords="5.7100,0.1100">Pampram</option>
+        <option value="oyarifa" data-coords="5.7400,-0.1500">Oyarifa</option>
+        <option value="circle" data-coords="5.5700,-0.2150">Circle</option>
+        <option value="kaneshie" data-coords="5.5650,-0.2400">Kaneshie</option>
+        <option value="dansoman" data-coords="5.5420,-0.2640">Dansoman</option>
+        <option value="korle-gono" data-coords="5.5350,-0.2200">Korle Gono</option>
       </optgroup>
       <optgroup label="Other Cities">
         <option value="kasoa" data-coords="5.5340,-0.4170">Kasoa</option>
@@ -911,8 +927,8 @@
     <div id="payment-section" style="display:none;">
       <p class="form-label" style="margin-bottom:0.6rem;">Payment Method</p>
       <div class="pmeth-grid">
-        <button class="pmeth-btn active" data-method="mtn-momo"><span class="pmeth-icon">📱</span>Mobile Money</button>
-        <button class="pmeth-btn" data-method="stripe"><span class="pmeth-icon">💳</span>Card</button>
+        <button class="pmeth-btn active" data-method="mtn-momo"><span class="pmeth-icon"><i class="fa-solid fa-money-bill-transfer"></i></span>Mobile Money</button>
+        <button class="pmeth-btn" data-method="stripe"><span class="pmeth-icon"><i class="fa-solid fa-credit-card"></i></span>Card</button>
       </div>
 
       <div class="form-row" style="margin-bottom:0.75rem;">
@@ -945,7 +961,7 @@
         <details class="ep-terms"><summary>Read the terms</summary><div id="terms-agree-body" class="md-body"></div></details>
         <span class="field-error" id="terms-agree-err"></span>
       </div>
-      
+
       <label class="checkbox-row" style="margin-bottom:1rem;"><input type="checkbox" id="set-reminder"> Set reminder (SMS / Email)</label>
       <button class="btn btn-primary btn-block" id="pay-btn">Complete Purchase</button>
       <div id="payment-status" class="status-msg" style="display:none;"></div>
@@ -1499,6 +1515,8 @@
             <option value="business">Business & Networking</option><option value="nightlife">Nightlife & Parties</option>
             <option value="family">Family & Kids</option><option value="workshops">Workshops & Classes</option>
             <option value="community">Community & Festivals</option><option value="free">Free Events</option>
+            <option value="comedy">Comedy</option><option value="concert">Concert</option>
+            <option value="conference">Conference</option><option value="technology">Technology</option>
           </select>
         </div>
       </div>
@@ -1520,7 +1538,20 @@
               <option value="osu">Osu</option> <option value="trassaco">Trassaco</option><option value="east-legon">East Legon</option>
               <option value="airport-residential-area">Airport Residential Area</option><option value="cantonments">Cantonments</option>
               <option value="labone">Labone</option><option value="labadi">Labadi</option><option value="tema">Tema</option>
-              <option value="madina">Madina</option><option value="Spintex">Spintex</option>
+              <option value="madina">Madina</option><option value="Spintex">Spintex</option> <option value="adenta">Adenta</option>
+              <option value="achimota">Achimota</option>
+              <option value="nungua">Nungua</option>
+              <option value="teshie">Teshie</option>
+              <option value="dzorwulu">Dzorwulu</option>
+              <option value="tesano">Tesano</option>
+              <option value="tantra-hills">Tantra Hills</option>
+              <option value="shukura">Shukura</option>
+              <option value="pampram">Pampram</option>
+              <option value="oyarifa">Oyarifa</option>
+              <option value="circle">Circle</option>
+              <option value="kaneshie">Kaneshie</option>
+              <option value="dansoman">Dansoman</option>
+              <option value="korle-gono">Korle Gono</option>
               <option value="accra-central">Accra Central</option><option value="west-legon">West Legon</option>
             </optgroup>
             <optgroup label="Other Cities">
