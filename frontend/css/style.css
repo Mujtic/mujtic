@@ -1483,7 +1483,11 @@ textarea.md-textarea { border-top-left-radius: 0; border-top-right-radius: 0; }
 .md-preview[hidden] { display: none; }
 .md-hint { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
 .md-empty { color: var(--muted); font-style: italic; }
-
+.md-sep { width: 1px; height: 18px; background: var(--border-2); margin: 0 0.25rem; }
+.md-body .md-al-center { text-align: center; }
+.md-body .md-al-right  { text-align: right; }
+.md-body ul.md-al-center, .md-body ol.md-al-center,
+.md-body ul.md-al-right,  .md-body ol.md-al-right { list-style-position: inside; margin-left: 0; padding-left: 0; }
 .md-body { font-size: 0.92rem; line-height: 1.8; color: var(--muted); overflow-wrap: anywhere; }
 .md-body p { margin: 0 0 0.8rem; }
 .md-body h4 { font-family: 'Syne', sans-serif; font-size: 1.05rem; color: var(--bright); margin: 1.1rem 0 0.4rem; }
