@@ -83,6 +83,8 @@ const eventSchema = Joi.object({
       groupDiscountMinQty: Joi.number().integer().min(1).default(5),
     })
   ).required(),
+  terms: Joi.string().max(5000).allow('', null).optional(),
+  status: Joi.string().valid('draft', 'publish').optional(),
   image: Joi.string().optional().allow('', null),
   lat: Joi.number().optional().allow(null),
   lng: Joi.number().optional().allow(null),

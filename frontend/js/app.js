@@ -2391,8 +2391,9 @@ class MujticApp {
     if (termsRow) {
       const has = !!(event.terms && event.terms.trim());
       termsRow.style.display = has ? 'block' : 'none';
-      document.getElementById('terms-agree').checked = false;
-      document.getElementById('terms-agree-body').innerHTML = (has && window.MujticEditor) ? MujticEditor.render(event.terms) : '';
+      const cb = document.getElementById('terms-agree'); if (cb) cb.checked = false;
+      const body = document.getElementById('terms-agree-body');
+      if (body) body.innerHTML = (has && window.MujticEditor) ? MujticEditor.render(event.terms) : '';
       this.clearFieldErrors('terms-agree-err');
     }
     const benefits  = this.getTicketBenefits(this.selectedTicket.type);
@@ -2465,11 +2466,11 @@ class MujticApp {
       ? (this.currentUser.name || '').trim() || email.split('@')[0]
       : (document.getElementById('payer-name')?.value || '').trim();
     const qty    = parseInt(document.getElementById('ticket-quantity').value) || 1;
-    const remind = document.getElementById('set-reminder').checked;
+    const remind = !!document.getElementById('set-reminder')?.checked;
     const companyName    = document.getElementById('company-name')?.value.trim() || '';
     const billingAddress = document.getElementById('billing-address')?.value.trim() || '';
 
-    this.clearFieldErrors('payer-name-err', 'payer-email-err', 'payer-phone-err', 'terms-agree-row');
+    this.clearFieldErrors('payer-name-err', 'payer-email-err', 'payer-phone-err', 'terms-agree-err');
 
     let valid = true;
     if (!this.currentUser) {
@@ -2480,8 +2481,11 @@ class MujticApp {
     else if (!this.validateEmail(email)) { this.setFieldError('payer-email', 'payer-email-err', 'Invalid email format'); valid = false; }
     if (!phone)                          { this.setFieldError('payer-phone', 'payer-phone-err', 'Phone is required'); valid = false; }
     else if (!this.validatePhone(phone)) { this.setFieldError('payer-phone', 'payer-phone-err', 'Use format: +233xxxxxxxxx'); valid = false; }
-    const termsShown = document.getElementById('terms-agree-row')?.style.display !== 'none';
-    if (termsShown && !document.getElementById('terms-agree').checked) {
+
+    const termsRow = document.getElementById('terms-agree-row');
+    const termsBox = document.getElementById('terms-agree');
+    const termsShown = !!termsRow && !!termsBox && termsRow.style.display !== 'none';
+    if (termsShown && !termsBox.checked) {
       this.setFieldError('terms-agree', 'terms-agree-err', 'Please accept the event terms to continue');
       valid = false;
     }
@@ -4183,7 +4187,6 @@ class MujticApp {
     this.on('create-event-btn',      'click', () => this.showEventForm());
     this.on('create-event-btn-hero', 'click', () => this.showEventForm());
     this.on('create-event-page-btn', 'click', () => this.showEventForm());
-    this.on('event-form',            'submit', e => { e.preventDefault(); this.saveEvent(); });
     this.on('add-ticket-type',       'click',  () => this.addTicketTypeInput());
     this.on('buy-ticket-btn',   'click', () => this.showPurchaseFlow());
     this.on('pay-btn',          'click', () => this.processPayment());
